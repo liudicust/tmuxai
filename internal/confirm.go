@@ -92,6 +92,8 @@ func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (boo
 			// empty command
 			return false, ""
 		}
+	case "n", "no", "cancel":
+		return false, ""
 	default:
 		// any other input is retry confirmation
 		return m.confirmedToExec(command, prompt, edit)

@@ -117,6 +117,9 @@ func (c *AiClient) ChatCompletion(ctx context.Context, messages []Message, model
 	req.Header.Set("HTTP-Referer", "https://github.com/alvinunreal/tmuxai")
 	req.Header.Set("X-Title", "TmuxAI")
 
+	// Log the request details for debugging before sending
+	logger.Debug("Sending API request to: %s with model: %s", url, model)
+
 	// Send the request
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -135,6 +138,9 @@ func (c *AiClient) ChatCompletion(ctx context.Context, messages []Message, model
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	// Log the raw response for debugging
+	logger.Debug("API response status: %d, response size: %d bytes", resp.StatusCode, len(body))
+
 	// Check for errors
 	if resp.StatusCode != http.StatusOK {
 		logger.Error("API returned error: %s", body)
@@ -144,7 +150,7 @@ func (c *AiClient) ChatCompletion(ctx context.Context, messages []Message, model
 	// Parse the response
 	var completionResp ChatCompletionResponse
 	if err := json.Unmarshal(body, &completionResp); err != nil {
-		logger.Error("Failed to unmarshal response: %v", err)
+		logger.Error("Failed to unmarshal response: %v, body: %s", err, body)
 		return "", fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
@@ -155,8 +161,9 @@ func (c *AiClient) ChatCompletion(ctx context.Context, messages []Message, model
 		return responseContent, nil
 	}
 
-	logger.Error("No completion choices returned")
-	return "", fmt.Errorf("no completion choices returned")
+	// Enhanced error for no completion choices
+	logger.Error("No completion choices returned. Raw response: %s", string(body))
+	return "", fmt.Errorf("no completion choices returned (model: %s, status: %d)", model, resp.StatusCode)
 }
 
 func debugChatMessages(chatMessages []ChatMessage, response string) {
