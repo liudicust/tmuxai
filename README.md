@@ -85,8 +85,6 @@ This installs TmuxAI to `/usr/local/bin/tmuxai` by default. If you need to insta
 If you use Homebrew, you can install TmuxAI with:
 
 ```bash
-brew install tmux
-brew tap alvinunreal/tmuxai
 brew install tmuxai
 ```
 
@@ -324,6 +322,15 @@ export TMUXAI_DEBUG=true
 export TMUXAI_MAX_CAPTURE_LINES=300
 export TMUXAI_OPENROUTER_API_KEY="your-api-key-here"
 export TMUXAI_OPENROUTER_MODEL="..."
+```
+
+You can also use environment variables directly within your configuration file values. The application will automatically expand these variables when loading the configuration:
+
+```yaml
+# Example config.yaml with environment variable expansion
+openrouter:
+  api_key: "${OPENAI_API_KEY}"
+  base_url: https://api.openai.com/v1
 ```
 
 ### Session-Specific Configuration
