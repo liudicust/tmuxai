@@ -17,6 +17,11 @@
     <a href="https://tmuxai.dev/screenshots" target="_blank">Screenshots</a> |
     <a href="https://github.com/alvinunreal/tmuxai/issues/new?labels=bug&template=bug_report.md" target="_blank">Report Bug</a> |
     <a href="https://github.com/alvinunreal/tmuxai/issues/new?labels=enhancement&template=feature_request.md" target="_blank">Request Feature</a>
+    <br/>
+    <br/>
+    <a href="https://tmuxai.dev/tmux-getting-started/" target="_blank">Tmux Getting Started</a> |
+    <a href="https://tmuxai.dev/tmux-config/" target="_blank">Tmux Config Generator</a> |
+    <a href="https://tmuxai.dev/tmux-shortcuts/" target="_blank">Tmux Shortcuts</a>
   </p>
 </div>
 
