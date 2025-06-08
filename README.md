@@ -375,6 +375,15 @@ openrouter:
   base_url: https://api.anthropic.com/v1
 ```
 
+For Gemini:
+
+```yaml
+openrouter:
+  model: gemini-2.5-pro-preview-06-05
+  api_key: XXXX
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+```
+
 For local Ollama:
 
 ```yaml
