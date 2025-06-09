@@ -19,9 +19,9 @@
     <a href="https://github.com/alvinunreal/tmuxai/issues/new?labels=enhancement&template=feature_request.md" target="_blank">Request Feature</a>
     <br/>
     <br/>
+    <a href="https://tmuxai.dev/tmux-cheat-sheet/" target="_blank">Tmux Cheat Sheet</a> |
     <a href="https://tmuxai.dev/tmux-getting-started/" target="_blank">Tmux Getting Started</a> |
-    <a href="https://tmuxai.dev/tmux-config/" target="_blank">Tmux Config Generator</a> |
-    <a href="https://tmuxai.dev/tmux-shortcuts/" target="_blank">Tmux Shortcuts</a>
+    <a href="https://tmuxai.dev/tmux-config/" target="_blank">Tmux Config Generator</a>
   </p>
 </div>
 
