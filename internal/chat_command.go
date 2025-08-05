@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/alvinunreal/tmuxai/config"
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
 )
@@ -17,6 +16,7 @@ const helpMessage = `Available commands:
 - /prepare: Prepare the pane for TmuxAI automation
 - /watch <prompt>: Start watch mode
 - /squash: Summarize the chat history
+- /mcp: Manage MCP servers for the current session
 - /exit: Exit the application`
 
 var commands = []string{
@@ -29,6 +29,7 @@ var commands = []string{
 	"/prepare",
 	"/config",
 	"/squash",
+	"/mcp",
 }
 
 // checks if the given content is a command
@@ -119,36 +120,15 @@ Watch for: ` + watchDesc
 		return
 
 	case prefixMatch(commandPrefix, "/config"):
-		// Helper function to check if a key is allowed
-		isKeyAllowed := func(key string) bool {
-			for _, k := range AllowedConfigKeys {
-				if k == key {
-					return true
-				}
-			}
-			return false
-		}
+		handleConfigCommand(m, parts[1:])
+		return
 
-		// Check if it's "config set" for a specific key
-		if len(parts) >= 3 && parts[1] == "set" {
-			key := parts[2]
-			if !isKeyAllowed(key) {
-				m.Println(fmt.Sprintf("Cannot set '%s'. Only these keys are allowed: %s", key, strings.Join(AllowedConfigKeys, ", ")))
-				return
-			}
-			value := strings.Join(parts[3:], " ")
-			m.SessionOverrides[key] = config.TryInferType(key, value)
-			m.Println(fmt.Sprintf("Set %s = %v", key, m.SessionOverrides[key]))
-			return
-		} else {
-			code, _ := system.HighlightCode("yaml", m.FormatConfig())
-			fmt.Println(code)
-			return
-		}
+	case prefixMatch(commandPrefix, "/mcp"):
+		handleMcpCommand(m, parts[1:])
+		return
 
 	default:
-		m.Println(fmt.Sprintf("Unknown command: %s. Type '/help' to see available commands.", command))
-		return
+		m.Println(fmt.Sprintf("Unknown command: %s. Use '/help' for more info.", commandPrefix))
 	}
 }
 
@@ -199,4 +179,123 @@ func (m *Manager) formatInfo() {
 		pane.Refresh(m.GetMaxCaptureLines())
 		fmt.Println(pane.FormatInfo(formatter))
 	}
+}
+
+// handleConfigCommand processes /config subcommands
+func handleConfigCommand(m *Manager, args []string) {
+	if len(args) == 0 {
+		m.Println("Usage: /config <get|set> [key] [value]")
+		return
+	}
+
+	subcommand := args[0]
+	switch subcommand {
+	case "get":
+		if len(args) == 1 {
+			// Show all config
+			m.Println("Current configuration:")
+			m.Println(m.FormatConfig())
+		} else if len(args) == 2 {
+			// Show specific config key
+			key := args[1]
+			if !isAllowedConfigKey(key) {
+				m.Println(fmt.Sprintf("Config key '%s' is not allowed to be modified. Allowed keys: %s", key, strings.Join(AllowedConfigKeys, ", ")))
+				return
+			}
+			value := getConfigValue(m, key)
+			m.Println(fmt.Sprintf("%s: %v", key, value))
+		} else {
+			m.Println("Usage: /config get [key]")
+		}
+
+	case "set":
+		if len(args) != 3 {
+			m.Println("Usage: /config set <key> <value>")
+			return
+		}
+		key := args[1]
+		value := args[2]
+
+		if !isAllowedConfigKey(key) {
+			m.Println(fmt.Sprintf("Config key '%s' is not allowed to be modified. Allowed keys: %s", key, strings.Join(AllowedConfigKeys, ", ")))
+			return
+		}
+
+		if err := setConfigValue(m, key, value); err != nil {
+			m.Println(fmt.Sprintf("Error setting config: %v", err))
+			return
+		}
+
+		m.Println(fmt.Sprintf("Set %s = %s", key, value))
+
+	default:
+		m.Println(fmt.Sprintf("Unknown /config subcommand: %s. Use 'get' or 'set'.", subcommand))
+	}
+}
+
+// isAllowedConfigKey checks if a config key is allowed to be modified
+func isAllowedConfigKey(key string) bool {
+	for _, allowedKey := range AllowedConfigKeys {
+		if allowedKey == key {
+			return true
+		}
+	}
+	return false
+}
+
+// getConfigValue gets the current value of a config key
+func getConfigValue(m *Manager, key string) interface{} {
+	// Check session overrides first
+	if override, exists := m.SessionOverrides[key]; exists {
+		return override
+	}
+
+	// Get from config
+	switch key {
+	case "max_capture_lines":
+		return m.Config.MaxCaptureLines
+	case "max_context_size":
+		return m.Config.MaxContextSize
+	case "wait_interval":
+		return m.Config.WaitInterval
+	case "send_keys_confirm":
+		return m.Config.SendKeysConfirm
+	case "paste_multiline_confirm":
+		return m.Config.PasteMultilineConfirm
+	case "exec_confirm":
+		return m.Config.ExecConfirm
+	case "openrouter.model":
+		return m.Config.OpenRouter.Model
+	default:
+		return nil
+	}
+}
+
+// setConfigValue sets a config value as a session override
+func setConfigValue(m *Manager, key, value string) error {
+	if m.SessionOverrides == nil {
+		m.SessionOverrides = make(map[string]interface{})
+	}
+
+	// Parse value based on the expected type
+	switch key {
+	case "max_capture_lines", "max_context_size", "wait_interval":
+		var intVal int
+		if _, err := fmt.Sscanf(value, "%d", &intVal); err != nil {
+			return fmt.Errorf("invalid integer value: %s", value)
+		}
+		m.SessionOverrides[key] = intVal
+	case "send_keys_confirm", "paste_multiline_confirm", "exec_confirm":
+		var boolVal bool
+		if _, err := fmt.Sscanf(value, "%t", &boolVal); err != nil {
+			return fmt.Errorf("invalid boolean value: %s (use true or false)", value)
+		}
+		m.SessionOverrides[key] = boolVal
+	case "openrouter.model":
+		m.SessionOverrides[key] = value
+	default:
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+
+	return nil
 }

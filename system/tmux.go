@@ -202,3 +202,19 @@ func TmuxClearPane(paneId string) error {
 	logger.Debug("Successfully cleared pane %s", paneId)
 	return nil
 }
+
+// TmuxSelectPane selects a specific pane
+func TmuxSelectPane(paneId string) error {
+	cmd := exec.Command("tmux", "select-pane", "-t", paneId)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		logger.Error("Failed to select tmux pane %s: %v, stderr: %s", paneId, err, stderr.String())
+		return err
+	}
+
+	logger.Debug("Successfully selected pane %s", paneId)
+	return nil
+}

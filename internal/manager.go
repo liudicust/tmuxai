@@ -42,6 +42,7 @@ type Manager struct {
 	WatchMode        bool
 	OS               string
 	SessionOverrides map[string]interface{} // session-only config overrides
+	McpServers       []config.McpServer     // currently selected MCP servers for this session
 }
 
 // NewManager creates a new manager agent
@@ -58,9 +59,18 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		if err != nil {
 			return nil, fmt.Errorf("system.TmuxCreateSession failed: %w", err)
 		}
-		args := strings.Join(os.Args[1:], " ")
 
-		system.TmuxSendCommandToPane(paneId, "tmuxai "+args, true)
+		// Create a right pane for chat (current pane becomes exec pane)
+		chatPaneId, err := system.TmuxCreateNewPane(paneId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chat pane: %w", err)
+		}
+
+		// Switch to the right pane (chat pane) and start tmuxai there
+		system.TmuxSelectPane(chatPaneId)
+		args := strings.Join(os.Args[1:], " ")
+		system.TmuxSendCommandToPane(chatPaneId, "tmuxai "+args, true)
+		system.TmuxSendCommandToPane(chatPaneId, "C-l", false)
 		// shell initialization may take some time
 		time.Sleep(1 * time.Second)
 		system.TmuxSendCommandToPane(paneId, "Enter", false)
@@ -98,7 +108,6 @@ func (m *Manager) Start(initMessage string) error {
 		logger.Error("Failed to start CLI interface: %v", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -131,7 +140,7 @@ func (m *Manager) GetPrompt() string {
 		stateSymbol = "∞"
 	}
 
-	prompt := tmuxaiColor.Sprint("TmuxAI")
+	prompt := tmuxaiColor.Sprint("CNP-AI")
 	if stateSymbol != "" {
 		prompt += " " + stateColor.Sprint("["+stateSymbol+"]")
 	}

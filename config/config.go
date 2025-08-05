@@ -10,6 +10,20 @@ import (
 	"github.com/spf13/viper"
 )
 
+// McpServer holds the configuration for a single MCP server
+type McpServer struct {
+	Name    string `mapstructure:"name"`
+	URL     string `mapstructure:"url"`
+	APIKey  string `mapstructure:"api_key"`
+	Model   string `mapstructure:"model"`
+	BaseURL string `mapstructure:"base_url"`
+}
+
+// McpConfig holds the MCP configuration
+type McpConfig struct {
+	Servers []McpServer `mapstructure:"servers"`
+}
+
 // Config holds the application configuration
 type Config struct {
 	Debug                 bool             `mapstructure:"debug"`
@@ -22,6 +36,7 @@ type Config struct {
 	WhitelistPatterns     []string         `mapstructure:"whitelist_patterns"`
 	BlacklistPatterns     []string         `mapstructure:"blacklist_patterns"`
 	OpenRouter            OpenRouterConfig `mapstructure:"openrouter"`
+	Mcp                   McpConfig        `mapstructure:"mcp"`
 	Prompts               PromptsConfig    `mapstructure:"prompts"`
 }
 
@@ -54,7 +69,10 @@ func DefaultConfig() *Config {
 		BlacklistPatterns:     []string{},
 		OpenRouter: OpenRouterConfig{
 			BaseURL: "https://openrouter.ai/api/v1",
-			Model:   "google/gemini-2.5-flash-preview",
+			Model:   "google/gemini-flash-1.5",
+		},
+		Mcp: McpConfig{
+			Servers: []McpServer{},
 		},
 		Prompts: PromptsConfig{
 			BaseSystem:    ``,
