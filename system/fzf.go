@@ -1,184 +1,98 @@
 package system
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
-	"github.com/jroimartin/gocui"
+	"github.com/trzsz/promptui"
 )
 
-var (
-	finalSelection []string
-	userCancelled  bool
-)
-
-// InteractiveSelect displays an interactive list for the user to select from.
-// It takes a slice of items to display and a map of already selected items.
-// It returns a slice of the newly selected items.
-func InteractiveSelect(items []string, initiallySelected map[string]struct{}) ([]string, error) {
-	g, err := gocui.NewGui(gocui.OutputNormal)
-	if err != nil {
-		return nil, err
-	}
-	defer g.Close()
-
-	// Reset global state
-	finalSelection = nil
-	userCancelled = true
-
-	selected := make(map[string]struct{})
-	for item := range initiallySelected {
-		selected[item] = struct{}{}
+// InteractiveSelect 使用 promptui 实现交互式多选功能
+// items: 可选择的项目列表
+// preSelected: 预先选中的项目（map[string]struct{}格式）
+func InteractiveSelect(items []string, preSelected map[string]struct{}) ([]string, error) {
+	if len(items) == 0 {
+		return nil, errors.New("no items to select")
 	}
 
-	g.SetManagerFunc(layout(items, selected))
-
-	if err := keybindings(g, items, selected); err != nil {
-		return nil, err
-	}
-
-	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
-		return nil, err
-	}
-
-	if userCancelled {
-		return nil, nil // Return nil, nil for cancellation, similar to fzf behavior
-	}
-
-	return finalSelection, nil
-}
-
-func layout(items []string, selected map[string]struct{}) func(*gocui.Gui) error {
-	return func(g *gocui.Gui) error {
-		maxX, maxY := g.Size()
-		width := 60
-		height := len(items) + 2
-		if height > 20 {
-			height = 20
+	// 初始化选择状态，根据 preSelected 设置已选中的项目
+	selectedItems := make(map[int]bool)
+	for i, item := range items {
+		if _, exists := preSelected[item]; exists {
+			selectedItems[i] = true
 		}
+	}
 
-		x0, y0 := maxX/2-width/2, maxY/2-height/2
-		x1, y1 := maxX/2+width/2, maxY/2+height/2
+	displayItems := make([]string, len(items))
+	for i, item := range items {
+		displayItems[i] = "[ ] " + item
+	}
 
-		if v, err := g.SetView("select", x0, y0, x1, y1); err != nil {
-			if err != gocui.ErrUnknownView {
-				return err
-			}
-			v.Title = "Select Servers (Space: toggle, Enter: confirm, q/Ctrl-C: quit)"
-			v.Highlight = true
-			v.SelBgColor = gocui.ColorGreen
-			v.SelFgColor = gocui.ColorBlack
-			v.SetCursor(0, 0)
-			v.Clear()
-			fmt.Fprint(v, string(formatItems(items, selected)))
-			if _, err := g.SetCurrentView("select"); err != nil {
-				return err
+	for {
+		// 更新显示项目的选择状态
+		for i, item := range items {
+			if selectedItems[i] {
+				displayItems[i] = "[✓] " + item
+			} else {
+				displayItems[i] = "[ ] " + item
 			}
 		}
-		return nil
-	}
-}
 
-func keybindings(g *gocui.Gui, items []string, selected map[string]struct{}) error {
-	quit := func(g *gocui.Gui, v *gocui.View) error {
-		return gocui.ErrQuit
-	}
+		// 在顶部添加退出选项，然后是分隔符，再是服务器列表，最后是确认选项
+		allOptions := []string{
+			"❌ Exit (Press Enter to quit)",
+			"---",
+		}
+		allOptions = append(allOptions, displayItems...)
+		allOptions = append(allOptions, "---", "✓ Confirm Selection")
 
-	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", 'q', gocui.ModNone, quit); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", gocui.KeyArrowDown, gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			cursorDown(v, len(items))
-			return nil
-		}); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", 'j', gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			cursorDown(v, len(items))
-			return nil
-		}); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", gocui.KeyArrowUp, gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			cursorUp(v)
-			return nil
-		}); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", 'k', gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			cursorUp(v)
-			return nil
-		}); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", gocui.KeySpace, gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			toggleSelection(v, items, selected)
-			v.Clear()
-			fmt.Fprint(v, string(formatItems(items, selected)))
-			return nil
-		}); err != nil {
-		return err
-	}
-	if err := g.SetKeybinding("select", gocui.KeyEnter, gocui.ModNone,
-		func(g *gocui.Gui, v *gocui.View) error {
-			userCancelled = false
-			finalSelection = []string{}
-			for item := range selected {
-				finalSelection = append(finalSelection, item)
+		prompt := promptui.Select{
+			Label:     "Select MCP Servers (↑↓: navigate, Space: toggle, Enter: confirm, Ctrl+C: quit)",
+			Items:     allOptions,
+			Size:      20,
+			CursorPos: 0, // 默认选中退出选项
+			Templates: &promptui.SelectTemplates{
+				Active:   "▶ {{ . | cyan }}",
+				Inactive: "  {{ . }}",
+				// 设置为空字符串，避免显示选中的项目
+				Selected: "",
+			},
+			HideSelected: true, // 隐藏选中项的显示
+		}
+
+		idx, result, err := prompt.Run()
+		if err != nil {
+			// promptui 默认支持 Ctrl+C 退出
+			if strings.Contains(err.Error(), "interrupt") {
+				return nil, errors.New("user cancelled selection")
 			}
-			return gocui.ErrQuit
-		}); err != nil {
-		return err
-	}
-	return nil
-}
+			return nil, err
+		}
 
-func cursorDown(v *gocui.View, numItems int) {
-	if v != nil {
-		cx, cy := v.Cursor()
-		if cy < numItems-1 {
-			v.SetCursor(cx, cy+1)
+		// 处理特殊选项
+		if strings.Contains(result, "Exit") {
+			return nil, nil
+		}
+
+		if result == "✓ Confirm Selection" {
+			// 返回选中的项目
+			var selected []string
+			for i, isSelected := range selectedItems {
+				if isSelected {
+					selected = append(selected, items[i])
+				}
+			}
+			return selected, nil
+		}
+
+		if result == "---" {
+			continue // 分隔符，忽略
+		}
+
+		// 切换选择状态（需要调整索引，因为添加了退出选项和分隔符）
+		adjustedIdx := idx - 2 // 减去退出选项和第一个分隔符
+		if adjustedIdx >= 0 && adjustedIdx < len(items) {
+			selectedItems[adjustedIdx] = !selectedItems[adjustedIdx]
 		}
 	}
-}
-
-func cursorUp(v *gocui.View) {
-	if v != nil {
-		cx, cy := v.Cursor()
-		if cy > 0 {
-			v.SetCursor(cx, cy-1)
-		}
-	}
-}
-
-func toggleSelection(v *gocui.View, items []string, selected map[string]struct{}) {
-	_, cy := v.Cursor()
-	if cy >= 0 && cy < len(items) {
-		item := items[cy]
-		if _, ok := selected[item]; ok {
-			delete(selected, item)
-		} else {
-			selected[item] = struct{}{}
-		}
-	}
-}
-
-func formatItems(items []string, selected map[string]struct{}) []byte {
-	var b strings.Builder
-	for _, item := range items {
-		prefix := "[ ]"
-		if _, ok := selected[item]; ok {
-			prefix = "[x]"
-		}
-		fmt.Fprintf(&b, "%s %s\n", prefix, item)
-	}
-	return []byte(b.String())
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/alvinunreal/tmuxai/config"
 	"github.com/alvinunreal/tmuxai/system"
+	"github.com/fatih/color"
 )
 
 func handleMcpCommand(m *Manager, args []string) {
@@ -77,7 +78,12 @@ func selectMcpServers(m *Manager) {
 	}
 	m.McpServers = updatedMcpServers
 
-	m.Println("MCP servers for this session have been updated.")
+	// 关闭旧的 MCP 客户端连接
+	m.McpClient.Close()
+
+	// 重新初始化 MCP 客户端，只连接选中的服务器
+	m.McpClient = NewMcpClient(updatedMcpServers)
+
 	showCurrentMcpServers(m)
 }
 
@@ -89,10 +95,19 @@ func showCurrentMcpServers(m *Manager) {
 
 	var serverNames []string
 	for _, server := range m.McpServers {
-		serverNames = append(serverNames, server.Name)
+		// 尝试获取服务器的工具列表
+		tools, err := m.McpClient.ListTools(server.Name)
+		if err != nil {
+			fmt.Println("Error listing tools:", err.Error())
+			serverNames = append(serverNames, fmt.Sprintf("%s (tools: unavailable)", server.Name))
+		} else {
+			serverNames = append(serverNames, fmt.Sprintf("%s (tools: %d available)", server.Name, len(tools)))
+		}
 	}
 
-	message := fmt.Sprintf("Current MCP servers for this session: %s", strings.Join(serverNames, ", "))
+	arrowColor := color.New(color.FgYellow, color.Bold)
+	serverList := arrowColor.Sprint(strings.Join(serverNames, ", "))
+	message := fmt.Sprintf("🧰 Current MCP servers for this session: %s", serverList)
 	m.Println(message)
 }
 

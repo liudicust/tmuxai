@@ -19,7 +19,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		m.squashHistory()
 	}
 
-	s := spinner.New(spinner.CharSets[26], 100*time.Millisecond)
+	s := spinner.New(spinner.CharSets[39], 100*time.Millisecond)
 	s.Start()
 
 	// check for status change before processing
@@ -88,7 +88,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 		// Log both to console and debug file
 		errMsg := "Failed to parse AI response: " + err.Error()
-		fmt.Println(errMsg)
+		logger.Error("ProcessUserMessage errMsg: %s", errMsg)
 
 		// Debug the failed parsing even when there's an error
 		if m.Config.Debug {
@@ -110,6 +110,28 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		Content:   response,
 		FromUser:  false,
 		Timestamp: time.Now(),
+	}
+
+	// Process MCP tool calls
+	for _, toolCall := range r.McpToolCalls {
+		result, err := m.McpClient.CallTool(toolCall.ServerName, toolCall.ToolName, toolCall.Arguments)
+		if err != nil {
+			// 将错误信息添加到对话历史
+			errorMsg := ChatMessage{
+				Content:   fmt.Sprintf("MCP tool %s.%s failed: %v", toolCall.ServerName, toolCall.ToolName, err),
+				FromUser:  false,
+				Timestamp: time.Now(),
+			}
+			m.Messages = append(m.Messages, errorMsg)
+		} else {
+			// 将成功结果添加到对话历史
+			resultMsg := ChatMessage{
+				Content:   fmt.Sprintf("MCP tool %s.%s result: %s", toolCall.ServerName, toolCall.ToolName, result),
+				FromUser:  false,
+				Timestamp: time.Now(),
+			}
+			m.Messages = append(m.Messages, resultMsg)
+		}
 	}
 
 	// did AI follow our guidelines?
@@ -283,19 +305,24 @@ func (m *Manager) aiFollowedGuidelines(r AIResponse) (string, bool) {
 	// Check if only one boolean is true in AI response
 	boolCount := 0
 	if r.RequestAccomplished {
+		logger.Info("aiFollowedGuidelines RequestAccomplished: %v", r.RequestAccomplished)
 		boolCount++
 	}
 	if r.ExecPaneSeemsBusy {
+		logger.Info("aiFollowedGuidelines ExecPaneSeemsBusy: %v", r.ExecPaneSeemsBusy)
 		boolCount++
 	}
 	if r.WaitingForUserResponse {
+		logger.Info("aiFollowedGuidelines WaitingForUserResponse: %v", r.WaitingForUserResponse)
 		boolCount++
 	}
 	if r.NoComment {
+		logger.Info("aiFollowedGuidelines NoComment: %v", r.NoComment)
 		boolCount++
 	}
 
 	if boolCount > 1 {
+		logger.Info("aiFollowedGuidelines boolCount: %d", boolCount)
 		return "You didn't follow the guidelines. Only one boolean flag should be set to true in your response. Pay attention!", false
 	}
 

@@ -1,13 +1,17 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"regexp"
 	"strings"
+
+	"github.com/alvinunreal/tmuxai/logger"
 )
 
 func (m *Manager) parseAIResponse(response string) (AIResponse, error) {
+	logger.Info("parseAIResponse response: %s", response)
 	// Tag mapping: tag name -> field
 	type tagInfo struct {
 		name     string
@@ -23,6 +27,12 @@ func (m *Manager) parseAIResponse(response string) (AIResponse, error) {
 		{"ExecPaneSeemsBusy", false, true, func(r *AIResponse, v string) { r.ExecPaneSeemsBusy = isTrue(v) }},
 		{"WaitingForUserResponse", false, true, func(r *AIResponse, v string) { r.WaitingForUserResponse = isTrue(v) }},
 		{"NoComment", false, true, func(r *AIResponse, v string) { r.NoComment = isTrue(v) }},
+		// 新增MCP工具调用标签
+		{"McpToolCall", true, false, func(r *AIResponse, v string) {
+			if toolCall, err := parseMcpToolCall(v); err == nil {
+				r.McpToolCalls = append(r.McpToolCalls, toolCall)
+			}
+		}},
 	}
 
 	clean := response
@@ -42,6 +52,7 @@ func (m *Manager) parseAIResponse(response string) (AIResponse, error) {
 			if !t.isBool {
 				val = html.UnescapeString(val)
 			}
+
 			if t.isArray {
 				t.setField(&r, val)
 			} else {
@@ -83,6 +94,20 @@ func (m *Manager) parseAIResponse(response string) (AIResponse, error) {
 	r.Message = msg
 
 	return r, nil
+}
+
+// 解析MCP工具调用
+func parseMcpToolCall(content string) (McpToolCall, error) {
+	// 解析JSON格式的工具调用
+	// 格式: {"server_name": "server1", "tool_name": "search", "arguments": {"query": "test"}}
+	logger.Info("parseMcpToolCall content: %s", content)
+	var toolCall McpToolCall
+	err := json.Unmarshal([]byte(content), &toolCall)
+	logger.Info("parseMcpToolCall toolCall: %v", toolCall)
+	if err != nil {
+		logger.Error("parseMcpToolCall err: %v", err)
+	}
+	return toolCall, err
 }
 
 // Helper: check if string is "1" or "true" (case-insensitive)

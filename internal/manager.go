@@ -21,6 +21,15 @@ type AIResponse struct {
 	ExecPaneSeemsBusy      bool
 	WaitingForUserResponse bool
 	NoComment              bool
+	// 新增MCP工具调用支持
+	McpToolCalls []McpToolCall
+}
+
+// MCP工具调用结构体
+type McpToolCall struct {
+	ServerName string                 `json:"server_name"`
+	ToolName   string                 `json:"tool_name"`
+	Arguments  map[string]interface{} `json:"arguments"`
 }
 
 // Parsed only when pane is prepared
@@ -43,9 +52,12 @@ type Manager struct {
 	OS               string
 	SessionOverrides map[string]interface{} // session-only config overrides
 	McpServers       []config.McpServer     // currently selected MCP servers for this session
+	// 新增MCP客户端
+	McpClient *McpClient
 }
 
 // NewManager creates a new manager agent
+// 在 NewManager 函数中修复 MCP 客户端初始化
 func NewManager(cfg *config.Config) (*Manager, error) {
 	if cfg.OpenRouter.APIKey == "" {
 		fmt.Println("OpenRouter API key is required. Set it in the config file or as an environment variable: TMUXAI_OPENROUTER_API_KEY")
@@ -69,7 +81,7 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		// Switch to the right pane (chat pane) and start tmuxai there
 		system.TmuxSelectPane(chatPaneId)
 		args := strings.Join(os.Args[1:], " ")
-		system.TmuxSendCommandToPane(chatPaneId, "tmuxai "+args, true)
+		system.TmuxSendCommandToPane(chatPaneId, "cnp-ai "+args, true)
 		system.TmuxSendCommandToPane(chatPaneId, "C-l", false)
 		// shell initialization may take some time
 		time.Sleep(1 * time.Second)
@@ -84,16 +96,21 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 	aiClient := NewAiClient(&cfg.OpenRouter)
 	os := system.GetOSDetails()
 
+	// 初始化空的 MCP 客户端（不连接任何服务器）
+	mcpClient := NewMcpClient([]config.McpServer{})
+
 	manager := &Manager{
 		Config:           cfg,
 		AiClient:         aiClient,
 		PaneId:           paneId,
 		Messages:         []ChatMessage{},
+		ExecHistory:      []CommandExecHistory{},
 		ExecPane:         &system.TmuxPaneDetails{},
 		OS:               os,
 		SessionOverrides: make(map[string]interface{}),
+		McpServers:       []config.McpServer{}, // 改为空数组，用户需要主动选择
+		McpClient:        mcpClient,
 	}
-
 	manager.InitExecPane()
 	return manager, nil
 }

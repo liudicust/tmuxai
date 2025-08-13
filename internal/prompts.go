@@ -7,7 +7,7 @@ import (
 )
 
 func (m *Manager) baseSystemPrompt() string {
-	basePrompt := `You are TmuxAI assistant. You are AI agent and live inside user's Tmux's window and can see all panes in that window.
+	basePrompt := `You are CNP-AI assistant. You are AI agent and live inside user's Tmux's window and can see all panes in that window.
 Think of TmuxAI as a pair programmer that sits beside user, watching users terminal window exactly as user see it.
 TmuxAI's design philosophy mirrors the way humans collaborate at the terminal. Just as a colleague sitting next to the user would observe users screen, understand context from what's visible, and help accordingly,
 TmuxAI: Observes: Reads the visible content in all your panes, Communicates and Acts: Can execute commands by calling tools.
@@ -54,7 +54,35 @@ You have access to the following XML tags to control the tmux pane:
 <PasteMultilineContent>: Use this to send multiline content into the tmux pane. You can use this to send multiline content, it's forbidden to use this to execute commands in a shell, when detected fish, bash, zsh etc prompt, for that you should use ExecCommand. Main use for this is when it's vim open and you need to type multiline text, etc.
 <WaitingForUserResponse>: Use this boolean tag (value 1) when you have a question, need input or clarification from the user to accomplish the request.
 <RequestAccomplished>: Use this boolean tag (value 1) when you have successfully completed and verified the user's request.
+<McpToolCall>: Use this to call MCP tools. Format: {"server_name": "server_name", "tool_name": "tool_name", "arguments": {"key": "value"}}
 `)
+
+	// 添加当前可用的MCP服务器和工具信息
+	if len(m.McpServers) > 0 {
+		builder.WriteString("\nCurrently available MCP servers and their tools:\n")
+		for _, server := range m.McpServers {
+			tools, err := m.McpClient.ListTools(server.Name)
+			if err != nil {
+				builder.WriteString(fmt.Sprintf("- %s (%s): Error listing tools - %v\n", server.Name, server.Type, err))
+				continue
+			}
+
+			builder.WriteString(fmt.Sprintf("- %s (%s):\n", server.Name, server.Type))
+			for _, toolName := range tools {
+				toolInfo, err := m.McpClient.GetToolInfo(server.Name, toolName)
+				if err != nil {
+					builder.WriteString(fmt.Sprintf("  - %s: (description unavailable)\n", toolName))
+				} else {
+					description := "No description"
+					if desc, ok := toolInfo["description"].(string); ok && desc != "" {
+						description = desc
+					}
+					builder.WriteString(fmt.Sprintf("  - %s: %s\n", toolName, description))
+				}
+			}
+		}
+		builder.WriteString("\nYou can use <McpToolCall> to invoke these tools when needed. Format: {\"server_name\": \"server_name\", \"tool_name\": \"tool_name\", \"arguments\": {\"key\": \"value\"}}\n")
+	}
 
 	if !prepared {
 		builder.WriteString(`<ExecPaneSeemsBusy>: Use this boolean tag (value 1) when you need to wait for the exec pane to finish before proceeding.`)
@@ -119,6 +147,21 @@ I've successfully created the new directory as requested.
 I'll list the contents of the current directory.
 <ExecCommand>ls -l</ExecCommand>
 </executing_a_command>
+
+<calling_mcp_tools>
+I'll search for information using the available MCP tool.
+<McpToolCall>{"server_name": "search_server", "tool_name": "web_search", "arguments": {"query": "golang best practices", "limit": 5}}</McpToolCall>
+</calling_mcp_tools>
+
+<calling_mcp_file_tools>
+I'll read the file content using the file system MCP tool.
+<McpToolCall>{"server_name": "filesystem", "tool_name": "read_file", "arguments": {"path": "/home/user/config.json"}}</McpToolCall>
+</calling_mcp_file_tools>
+
+<calling_mcp_database_tools>
+I'll query the database using the MCP database tool.
+<McpToolCall>{"server_name": "database", "tool_name": "execute_query", "arguments": {"query": "SELECT * FROM users WHERE active = true", "database": "main"}}</McpToolCall>
+</calling_mcp_database_tools>
 `)
 
 	if prepared {

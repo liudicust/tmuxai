@@ -12,11 +12,20 @@ import (
 
 // McpServer holds the configuration for a single MCP server
 type McpServer struct {
-	Name    string `mapstructure:"name"`
-	URL     string `mapstructure:"url"`
-	APIKey  string `mapstructure:"api_key"`
-	Model   string `mapstructure:"model"`
-	BaseURL string `mapstructure:"base_url"`
+	Name        string `mapstructure:"name"`
+	URL         string `mapstructure:"url"`
+	APIKey      string `mapstructure:"api_key"`
+	Model       string `mapstructure:"model"`
+	BaseURL     string `mapstructure:"base_url"`
+	Type        string `mapstructure:"type"`        // "http", "sse", "websocket"
+	StreamMode  bool   `mapstructure:"stream_mode"` // 是否启用流式响应
+	Timeout     int    `mapstructure:"timeout"`    // 连接超时时间
+	RetryCount  int    `mapstructure:"retry_count"` // 重试次数
+	// 添加缺失的字段
+	Command     string            `mapstructure:"command"`     // stdio 模式下的命令
+	Args        []string          `mapstructure:"args"`        // 命令参数
+	Env         map[string]string `mapstructure:"env"`         // 环境变量
+	Headers     map[string]string `mapstructure:"headers"`     // HTTP 头部
 }
 
 // McpConfig holds the MCP configuration
