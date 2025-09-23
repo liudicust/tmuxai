@@ -1,34 +1,16 @@
-max_context_size: 20000 # Maximum context size in tokens, reaching 80% triggers squashing
-max_capture_lines: 200 # Maximum number of lines to capture during each message
+max_context_size: 50000 # Maximum context size in tokens, reaching 80% triggers squashing
+max_capture_lines: 300 # Maximum number of lines to capture during each message
 wait_interval: 5 # Wait interval when exec pane is considered busy (used in observe and watch modes)
 
 send_keys_confirm: true # Confirm before executing send keys
 paste_multiline_confirm: true # Confirm before pasting multiline content
 exec_confirm: true # Confirm before executing commands
 
-# Not only OpenRouter, you can use any OpenAI compatible API
 openrouter:
-  api_key: sk-or-v1-XXXXXXXXX
-  model: google/gemini-2.5-flash-preview # default model
-  base_url: https://openrouter.ai/api/v1 # default base url
+  api_key: xxxxxxxxx
+  model: xxxxxxxx
+  base_url: https://xxx.xx.xx/v1 
 
-# OpenAI example
-# openrouter:
-#   api_key: sk-XXXXXXXXX
-#   model: o4-mini-2025-04-16
-#   base_url: https://api.openai.com/v1
-
-# Anthropic example
-# openrouter:
-#   api_key: sk-proj-XXX
-#   model:
-#   base_url: https://api.anthropic.com/v1
-
-# Local Ollama example
-# openrouter:
-#   api_key: api-key
-#   model: gemma3:1b
-#   base_url: http://localhost:11434/v1
 
 debug: false # Set to true to log full AI messages sent and received. Dest: ~/.config/tmuxai/debug/
 
@@ -188,3 +170,15 @@ blacklist_patterns:
 #   # Watch prompt
 #   watch: |
 #     xxx
+#
+#
+#
+mcp:
+  servers:
+    - name: "xxxxx"
+      type: "sse"
+      url: "https://xxxx.xxx.xxx/mcp/xxxxx/sse?api_key=xxxxxxx"
+      api_key: "xxxxxxxxx"
+      stream_mode: true
+      timeout: 30
+      retry_count: 3

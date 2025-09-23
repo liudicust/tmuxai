@@ -1,8 +1,6 @@
 module github.com/alvinunreal/tmuxai
 
-go 1.23.0
-
-toolchain go1.23.5
+go 1.24.7
 
 require (
 	github.com/alecthomas/chroma v0.10.0
@@ -12,6 +10,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/openai v0.0.0-20250801075622-6721dae36fe9
 	github.com/eiannone/keyboard v0.0.0-20220611211555-0d226195f203
 	github.com/fatih/color v1.18.0
+	github.com/kaptinlin/jsonrepair v0.2.3
 	github.com/mark3labs/mcp-go v0.37.0
 	github.com/nyaosorg/go-readline-ny v1.9.1
 	github.com/spf13/cobra v1.8.0

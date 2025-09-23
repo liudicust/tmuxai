@@ -51,38 +51,82 @@ func selectMcpServers(m *Manager) {
 		return
 	}
 
+	// 仅构建服务器名称列表（不再预先加载工具列表）
 	var serverNames []string
 	for _, server := range m.Config.Mcp.Servers {
 		serverNames = append(serverNames, server.Name)
 	}
 
-	// Create a map of currently selected server names for quick lookup
-	selectedNames := make(map[string]struct{})
-	for _, server := range m.McpServers {
-		selectedNames[server.Name] = struct{}{}
+	// 使用历史选择作为预选
+	preSelectedTools := m.SelectedMcpTools
+
+	// 懒加载函数：当用户选择了某个服务器后，再去拉取该服务器的工具
+	loadTools := func(serverName string) ([]system.ToolInfo, error) {
+		server, found := findMcpServer(m.Config, serverName)
+		if !found {
+			return nil, fmt.Errorf("server '%s' not found", serverName)
+		}
+
+		// 仅连接该服务器，拉取工具信息
+		tempClient := NewMcpClient([]config.McpServer{server})
+		defer tempClient.Close()
+
+		toolNames, err := tempClient.ListTools(serverName)
+		if err != nil {
+			return nil, err
+		}
+
+		var tools []system.ToolInfo
+		for _, toolName := range toolNames {
+			description := "No description"
+			if info, err := tempClient.GetToolInfo(serverName, toolName); err == nil {
+				if desc, ok := info["description"].(string); ok && desc != "" {
+					description = desc
+				}
+			}
+			tools = append(tools, system.ToolInfo{
+				Name:        toolName,
+				Description: description, // 图形界面只使用描述
+			})
+		}
+		return tools, nil
 	}
 
-	// Run fzf to let the user select/deselect servers
-	newlySelectedNames, err := system.InteractiveSelect(serverNames, selectedNames)
+	// 执行两步选择（懒加载工具）
+	selections, err := system.InteractiveSelectServersAndTools(serverNames, preSelectedTools, loadTools)
 	if err != nil {
-		m.Println(fmt.Sprintf("Error running interactive selection: %v", err))
+		m.Println(fmt.Sprintf("Error in server and tool selection: %v", err))
 		return
 	}
 
-	// Update the session's MCP servers based on the new selection
-	var updatedMcpServers []config.McpServer
-	for _, name := range newlySelectedNames {
-		if server, found := findMcpServer(m.Config, name); found {
-			updatedMcpServers = append(updatedMcpServers, server)
+	if len(selections) == 0 {
+		m.Println("No servers selected.")
+		// 清空当前选择
+		m.McpServers = []config.McpServer{}
+		m.SelectedMcpTools = make(map[string][]string)
+		m.McpClient.Close()
+		m.McpClient = NewMcpClient([]config.McpServer{})
+		return
+	}
+
+	// 更新选中的服务器和工具
+	var selectedServers []config.McpServer
+	newSelectedTools := make(map[string][]string)
+
+	for _, selection := range selections {
+		if server, found := findMcpServer(m.Config, selection.ServerName); found {
+			selectedServers = append(selectedServers, server)
+			newSelectedTools[selection.ServerName] = selection.SelectedTools
 		}
 	}
-	m.McpServers = updatedMcpServers
 
-	// 关闭旧的 MCP 客户端连接
+	// 更新Manager状态
+	m.McpServers = selectedServers
+	m.SelectedMcpTools = newSelectedTools
+
+	// 重新初始化MCP客户端（仅连接选中的服务器）
 	m.McpClient.Close()
-
-	// 重新初始化 MCP 客户端，只连接选中的服务器
-	m.McpClient = NewMcpClient(updatedMcpServers)
+	m.McpClient = NewMcpClient(selectedServers)
 
 	showCurrentMcpServers(m)
 }
@@ -93,20 +137,14 @@ func showCurrentMcpServers(m *Manager) {
 		return
 	}
 
-	var serverNames []string
+	var serverDetails []string
 	for _, server := range m.McpServers {
-		// 尝试获取服务器的工具列表
-		tools, err := m.McpClient.ListTools(server.Name)
-		if err != nil {
-			fmt.Println("Error listing tools:", err.Error())
-			serverNames = append(serverNames, fmt.Sprintf("%s (tools: unavailable)", server.Name))
-		} else {
-			serverNames = append(serverNames, fmt.Sprintf("%s (tools: %d available)", server.Name, len(tools)))
-		}
+		selectedTools := m.SelectedMcpTools[server.Name]
+		serverDetails = append(serverDetails, fmt.Sprintf("%s (%d tools selected)", server.Name, len(selectedTools)))
 	}
 
 	arrowColor := color.New(color.FgYellow, color.Bold)
-	serverList := arrowColor.Sprint(strings.Join(serverNames, ", "))
+	serverList := arrowColor.Sprint(strings.Join(serverDetails, ", "))
 	message := fmt.Sprintf("🧰 Current MCP servers for this session: %s", serverList)
 	m.Println(message)
 }

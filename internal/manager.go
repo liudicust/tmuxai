@@ -54,6 +54,8 @@ type Manager struct {
 	McpServers       []config.McpServer     // currently selected MCP servers for this session
 	// 新增MCP客户端
 	McpClient *McpClient
+	// 新增：选中的MCP工具映射：服务器名称 -> 工具名称列表
+	SelectedMcpTools map[string][]string
 }
 
 // NewManager creates a new manager agent
@@ -110,6 +112,7 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		SessionOverrides: make(map[string]interface{}),
 		McpServers:       []config.McpServer{}, // 改为空数组，用户需要主动选择
 		McpClient:        mcpClient,
+		SelectedMcpTools: make(map[string][]string), // 初始化工具选择映射
 	}
 	manager.InitExecPane()
 	return manager, nil

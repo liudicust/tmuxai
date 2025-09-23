@@ -91,7 +91,7 @@ func (mc *McpClient) CallTool(serverName, toolName string, arguments map[string]
 	if !exists {
 		return "", fmt.Errorf("MCP server '%s' not found", serverName)
 	}
-	toolName = serverName + "-" + toolName
+	//toolName = serverName + "-" + toolName
 
 	request := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -131,7 +131,6 @@ func (mc *McpClient) ListTools(serverName string) ([]string, error) {
 	client, exists := mc.clients[serverName]
 	mc.mu.RUnlock()
 
-	fmt.Println("MCP clients:", mc.clients)
 	if !exists {
 		return nil, fmt.Errorf("MCP server '%s' not found", serverName)
 	}
@@ -174,7 +173,7 @@ func (mc *McpClient) GetToolInfo(serverName, toolName string) (map[string]interf
 			toolInfo := map[string]interface{}{
 				"name":        tool.Name,
 				"description": tool.Description,
-				"inputSchema": tool.InputSchema,
+				"inputSchema": tool.InputSchema, // 恢复参数信息，供AI提示使用
 			}
 			return toolInfo, nil
 		}

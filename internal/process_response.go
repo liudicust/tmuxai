@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/alvinunreal/tmuxai/logger"
+	"github.com/kaptinlin/jsonrepair"
 )
 
 func (m *Manager) parseAIResponse(response string) (AIResponse, error) {
@@ -98,16 +99,263 @@ func (m *Manager) parseAIResponse(response string) (AIResponse, error) {
 
 // 解析MCP工具调用
 func parseMcpToolCall(content string) (McpToolCall, error) {
-	// 解析JSON格式的工具调用
-	// 格式: {"server_name": "server1", "tool_name": "search", "arguments": {"query": "test"}}
 	logger.Info("parseMcpToolCall content: %s", content)
+
 	var toolCall McpToolCall
-	err := json.Unmarshal([]byte(content), &toolCall)
-	logger.Info("parseMcpToolCall toolCall: %v", toolCall)
+	var lastErr error
+
+	// 策略1: 标准JSON解析（原有逻辑）
+	repairedJSON, err := jsonrepair.JSONRepair(content)
 	if err != nil {
-		logger.Error("parseMcpToolCall err: %v", err)
+		logger.Error("Failed to repair JSON: %v", err)
+		repairedJSON = content
+	} else {
+		logger.Info("JSON repaired from: %s to: %s", content, repairedJSON)
 	}
-	return toolCall, err
+
+	err = json.Unmarshal([]byte(repairedJSON), &toolCall)
+	if err == nil && toolCall.ServerName != "" && toolCall.ToolName != "" {
+		logger.Info("parseMcpToolCall success with standard parsing: %v", toolCall)
+		return toolCall, nil
+	}
+	lastErr = err
+
+	// 策略2: 尝试从代码块中提取JSON
+	codeBlockJSON := extractJSONFromCodeBlock(content)
+	if codeBlockJSON != "" {
+		logger.Info("Trying to parse JSON from code block: %s", codeBlockJSON)
+		err = json.Unmarshal([]byte(codeBlockJSON), &toolCall)
+		if err == nil && toolCall.ServerName != "" && toolCall.ToolName != "" {
+			logger.Info("parseMcpToolCall success with code block extraction: %v", toolCall)
+			return toolCall, nil
+		}
+		lastErr = err
+	}
+
+	// 策略3: 正则表达式提取关键字段
+	regexToolCall, regexErr := extractWithRegex(content)
+	if regexErr == nil && regexToolCall.ServerName != "" && regexToolCall.ToolName != "" {
+		logger.Info("parseMcpToolCall success with regex extraction: %v", regexToolCall)
+		return regexToolCall, nil
+	}
+	if regexErr != nil {
+		lastErr = regexErr
+	}
+
+	// 策略4: 模糊匹配关键词
+	fuzzyToolCall, fuzzyErr := extractWithFuzzyMatching(content)
+	if fuzzyErr == nil && fuzzyToolCall.ServerName != "" && fuzzyToolCall.ToolName != "" {
+		logger.Info("parseMcpToolCall success with fuzzy matching: %v", fuzzyToolCall)
+		return fuzzyToolCall, nil
+	}
+	if fuzzyErr != nil {
+		lastErr = fuzzyErr
+	}
+
+	// 策略5: 部分解析 - 即使只能提取部分字段也尝试返回
+	partialToolCall := extractPartialFields(content)
+	if partialToolCall.ServerName != "" || partialToolCall.ToolName != "" {
+		logger.Info("parseMcpToolCall partial success: %v", partialToolCall)
+		return partialToolCall, fmt.Errorf("partial parsing: missing some fields")
+	}
+
+	logger.Error("parseMcpToolCall failed with all strategies, last error: %v", lastErr)
+	return toolCall, lastErr
+}
+
+// 从代码块中提取JSON
+func extractJSONFromCodeBlock(content string) string {
+	// 匹配 ```json {...} ``` 或 ``` {...} ```
+	patterns := []string{
+		"(?s)```(?:json)?\\s*(\\{.*?\\})\\s*```",
+		"(?s)```\\s*(\\{.*?\\})\\s*```",
+		"(?s)`\\s*(\\{.*?\\})\\s*`", // 单反引号
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(content)
+		if len(matches) > 1 {
+			return strings.TrimSpace(matches[1])
+		}
+	}
+	return ""
+}
+
+// 使用正则表达式提取关键字段
+func extractWithRegex(content string) (McpToolCall, error) {
+	var toolCall McpToolCall
+
+	// 提取 server_name
+	serverNamePatterns := []string{
+		`"server_name"\s*:\s*"([^"]+)"`,
+		`'server_name'\s*:\s*'([^']+)'`,
+		`server_name:\s*"([^"]+)"`,
+		`server_name:\s*'([^']+)'`,
+		`serverName\s*:\s*"([^"]+)"`,
+	}
+
+	for _, pattern := range serverNamePatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(content)
+		if len(matches) > 1 {
+			toolCall.ServerName = matches[1]
+			break
+		}
+	}
+
+	// 提取 tool_name
+	toolNamePatterns := []string{
+		`"tool_name"\s*:\s*"([^"]+)"`,
+		`'tool_name'\s*:\s*'([^']+)'`,
+		`tool_name:\s*"([^"]+)"`,
+		`tool_name:\s*'([^']+)'`,
+		`toolName\s*:\s*"([^"]+)"`,
+	}
+
+	for _, pattern := range toolNamePatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(content)
+		if len(matches) > 1 {
+			toolCall.ToolName = matches[1]
+			break
+		}
+	}
+
+	// 提取 arguments (简化处理)
+	argumentsPatterns := []string{
+		`"arguments"\s*:\s*(\{[^}]*\})`,
+		`'arguments'\s*:\s*(\{[^}]*\})`,
+		`arguments:\s*(\{[^}]*\})`,
+	}
+
+	for _, pattern := range argumentsPatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(content)
+		if len(matches) > 1 {
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(matches[1]), &args); err == nil {
+				toolCall.Arguments = args
+			}
+			break
+		}
+	}
+
+	if toolCall.ServerName == "" && toolCall.ToolName == "" {
+		return toolCall, fmt.Errorf("regex extraction failed: no server_name or tool_name found")
+	}
+
+	return toolCall, nil
+}
+
+// 模糊匹配关键词
+func extractWithFuzzyMatching(content string) (McpToolCall, error) {
+	var toolCall McpToolCall
+
+	// 将内容按行分割并查找包含关键词的行
+	lines := strings.Split(content, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// 查找服务器名称
+		if strings.Contains(line, "server") && (strings.Contains(line, ":") || strings.Contains(line, "=")) {
+			if value := extractValueFromLine(line); value != "" {
+				toolCall.ServerName = value
+			}
+		}
+
+		// 查找工具名称
+		if strings.Contains(line, "tool") && (strings.Contains(line, ":") || strings.Contains(line, "=")) {
+			if value := extractValueFromLine(line); value != "" {
+				toolCall.ToolName = value
+			}
+		}
+	}
+
+	if toolCall.ServerName == "" && toolCall.ToolName == "" {
+		return toolCall, fmt.Errorf("fuzzy matching failed: no recognizable fields found")
+	}
+
+	return toolCall, nil
+}
+
+// 从行中提取值
+func extractValueFromLine(line string) string {
+	// 尝试多种分隔符和引号组合
+	patterns := []string{
+		`:\s*"([^"]+)"`,
+		`:\s*'([^']+)'`,
+		`:\s*([^,}\s]+)`,
+		`=\s*"([^"]+)"`,
+		`=\s*'([^']+)'`,
+		`=\s*([^,}\s]+)`,
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			return strings.TrimSpace(matches[1])
+		}
+	}
+	return ""
+}
+
+// 部分字段提取 - 最后的兜底策略
+func extractPartialFields(content string) McpToolCall {
+	var toolCall McpToolCall
+
+	// 简单的关键词搜索
+	content = strings.ToLower(content)
+
+	// 寻找可能的服务器名称
+	serverKeywords := []string{"server", "service", "host"}
+	for _, keyword := range serverKeywords {
+		if idx := strings.Index(content, keyword); idx != -1 {
+			// 尝试提取后面的值
+			substr := content[idx:]
+			if value := extractNearbyValue(substr); value != "" {
+				toolCall.ServerName = value
+				break
+			}
+		}
+	}
+
+	// 寻找可能的工具名称
+	toolKeywords := []string{"tool", "function", "method", "action"}
+	for _, keyword := range toolKeywords {
+		if idx := strings.Index(content, keyword); idx != -1 {
+			substr := content[idx:]
+			if value := extractNearbyValue(substr); value != "" {
+				toolCall.ToolName = value
+				break
+			}
+		}
+	}
+
+	return toolCall
+}
+
+// 提取附近的值
+func extractNearbyValue(text string) string {
+	// 查找引号内的内容或者冒号后的词
+	patterns := []string{
+		`"([^"]+)"`,
+		`'([^']+)'`,
+		`:\s*(\w+)`,
+		`=\s*(\w+)`,
+		`\s+(\w+)`,
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(text)
+		if len(matches) > 1 && len(matches[1]) > 2 { // 至少3个字符
+			return matches[1]
+		}
+	}
+	return ""
 }
 
 // Helper: check if string is "1" or "true" (case-insensitive)

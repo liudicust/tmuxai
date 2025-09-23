@@ -8,6 +8,7 @@ import (
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
 	"github.com/briandowns/spinner"
+	"github.com/fatih/color"
 )
 
 // Main function to process regular user messages
@@ -114,6 +115,18 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// Process MCP tool calls
 	for _, toolCall := range r.McpToolCalls {
+		ok, msg := m.validateMcpToolSelection(toolCall.ServerName, toolCall.ToolName)
+		if !ok {
+			errorMsg := ChatMessage{
+				Content:   msg,
+				FromUser:  false,
+				Timestamp: time.Now(),
+			}
+			m.Messages = append(m.Messages, errorMsg)
+			continue
+		}
+
+		color.Yellow("🔧 Calling MCP Tool: %s", toolCall.ToolName)
 		result, err := m.McpClient.CallTool(toolCall.ServerName, toolCall.ToolName, toolCall.Arguments)
 		if err != nil {
 			// 将错误信息添加到对话历史
@@ -322,12 +335,12 @@ func (m *Manager) aiFollowedGuidelines(r AIResponse) (string, bool) {
 	}
 
 	if boolCount > 1 {
-		logger.Info("aiFollowedGuidelines boolCount: %d", boolCount)
+		logger.Error("aiFollowedGuidelines boolCount: %d", boolCount)
 		return "You didn't follow the guidelines. Only one boolean flag should be set to true in your response. Pay attention!", false
 	}
 
 	// Check if only one tag is used
-	tags := []int{len(r.ExecCommand), len(r.SendKeys), len(r.PasteMultilineContent)}
+	tags := []int{len(r.ExecCommand), len(r.SendKeys), len(r.PasteMultilineContent), len(r.McpToolCalls)}
 	count := 0
 	for _, len := range tags {
 		if len > 0 {
@@ -345,4 +358,22 @@ func (m *Manager) aiFollowedGuidelines(r AIResponse) (string, bool) {
 	}
 
 	return "", true
+}
+
+// 文件内新增的辅助方法：校验是否允许调用指定的 MCP 工具
+func (m *Manager) validateMcpToolSelection(serverName, toolName string) (bool, string) {
+	// 验证服务器是否已选择
+	selectedTools, serverSelected := m.SelectedMcpTools[serverName]
+	if !serverSelected {
+		return false, fmt.Sprintf("MCP server '%s' is not selected for this session. Use '/mcp list' to select servers.", serverName)
+	}
+
+	// 验证工具是否已选择
+	for _, selectedTool := range selectedTools {
+		if selectedTool == toolName {
+			return true, ""
+		}
+	}
+
+	return false, fmt.Sprintf("MCP tool '%s' on server '%s' is not selected for this session. Use '/mcp list' to select tools.", toolName, serverName)
 }

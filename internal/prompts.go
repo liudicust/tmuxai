@@ -26,6 +26,7 @@ NEVER generate an extremely long hash or any non-textual code, such as binary. T
 Always address user directly as 'you' in a conversational tone, avoiding third-person phrases like 'the user' or 'one should.'
 
 IMPORTANT: BE CONCISE AND AVOID VERBOSITY. BREVITY IS CRITICAL. Minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand.
+重要：优先使用中文进行回复和交流。除非用户明确要求使用其他语言，否则应该默认使用中文输出。这有助于提供更好的用户体验和理解。
 
 Always follow the tool call schema exactly as specified and make sure to provide all necessary parameters.
 The conversation may reference tools that are no longer available. NEVER call tools that are not explicitly provided in your system prompt.
@@ -54,21 +55,21 @@ You have access to the following XML tags to control the tmux pane:
 <PasteMultilineContent>: Use this to send multiline content into the tmux pane. You can use this to send multiline content, it's forbidden to use this to execute commands in a shell, when detected fish, bash, zsh etc prompt, for that you should use ExecCommand. Main use for this is when it's vim open and you need to type multiline text, etc.
 <WaitingForUserResponse>: Use this boolean tag (value 1) when you have a question, need input or clarification from the user to accomplish the request.
 <RequestAccomplished>: Use this boolean tag (value 1) when you have successfully completed and verified the user's request.
-<McpToolCall>: Use this to call MCP tools. Format: {"server_name": "server_name", "tool_name": "tool_name", "arguments": {"key": "value"}}
+<McpToolCall>: Use this to call MCP tools. The content MUST be a strict JSON object (no code fences, no comments), and it MUST be wrapped with both opening and closing XML tags. Use double quotes for all keys and strings. Example: <McpToolCall>{"server_name":"server_name","tool_name":"tool_name","arguments":{"key":"value"}}</McpToolCall>
 `)
 
 	// 添加当前可用的MCP服务器和工具信息
 	if len(m.McpServers) > 0 {
 		builder.WriteString("\nCurrently available MCP servers and their tools:\n")
 		for _, server := range m.McpServers {
-			tools, err := m.McpClient.ListTools(server.Name)
-			if err != nil {
-				builder.WriteString(fmt.Sprintf("- %s (%s): Error listing tools - %v\n", server.Name, server.Type, err))
+			// 仅展示用户勾选的工具
+			selectedTools, hasSelected := m.SelectedMcpTools[server.Name]
+			if !hasSelected || len(selectedTools) == 0 {
 				continue
 			}
 
 			builder.WriteString(fmt.Sprintf("- %s (%s):\n", server.Name, server.Type))
-			for _, toolName := range tools {
+			for _, toolName := range selectedTools {
 				toolInfo, err := m.McpClient.GetToolInfo(server.Name, toolName)
 				if err != nil {
 					builder.WriteString(fmt.Sprintf("  - %s: (description unavailable)\n", toolName))
@@ -77,11 +78,18 @@ You have access to the following XML tags to control the tmux pane:
 					if desc, ok := toolInfo["description"].(string); ok && desc != "" {
 						description = desc
 					}
+
+					// 为AI提示添加完整的工具信息，包括参数
 					builder.WriteString(fmt.Sprintf("  - %s: %s\n", toolName, description))
+
+					// 添加参数信息到AI提示中
+					if inputSchema, ok := toolInfo["inputSchema"]; ok && inputSchema != nil {
+						builder.WriteString(fmt.Sprintf("    Parameters: %v\n", inputSchema))
+					}
 				}
 			}
 		}
-		builder.WriteString("\nYou can use <McpToolCall> to invoke these tools when needed. Format: {\"server_name\": \"server_name\", \"tool_name\": \"tool_name\", \"arguments\": {\"key\": \"value\"}}\n")
+		builder.WriteString("\nYou can use <McpToolCall> to invoke these tools when needed. Example: <McpToolCall>{\"server_name\":\"server_name\",\"tool_name\":\"tool_name\",\"arguments\":{\"key\":\"value\"}}</McpToolCall>\n")
 	}
 
 	if !prepared {
@@ -112,6 +120,7 @@ When generating your response pay attention to this checks:
 Check the length of ExecCommand content. Is more than 60 characters? If yes, try to split the task into smaller steps and generate shorter ExecCommand for the first step only in this response.
 Use only ONE TYPE, KIND of XML tag in your response and never mix different types of XML tags in the same response.
 Always include at least one XML tag in your response.
+All XML tags MUST be properly closed with matching end tags. Never output a lone opening tag (e.g., <McpToolCall>{...}) or self-closing tags (e.g., <McpToolCall/>).
 
 ==== End of critical priority rules. ====
 
@@ -152,16 +161,6 @@ I'll list the contents of the current directory.
 I'll search for information using the available MCP tool.
 <McpToolCall>{"server_name": "search_server", "tool_name": "web_search", "arguments": {"query": "golang best practices", "limit": 5}}</McpToolCall>
 </calling_mcp_tools>
-
-<calling_mcp_file_tools>
-I'll read the file content using the file system MCP tool.
-<McpToolCall>{"server_name": "filesystem", "tool_name": "read_file", "arguments": {"path": "/home/user/config.json"}}</McpToolCall>
-</calling_mcp_file_tools>
-
-<calling_mcp_database_tools>
-I'll query the database using the MCP database tool.
-<McpToolCall>{"server_name": "database", "tool_name": "execute_query", "arguments": {"query": "SELECT * FROM users WHERE active = true", "database": "main"}}</McpToolCall>
-</calling_mcp_database_tools>
 `)
 
 	if prepared {
