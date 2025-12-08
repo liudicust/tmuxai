@@ -7,14 +7,20 @@ import (
 	"strings"
 
 	"github.com/alvinunreal/tmuxai/config"
-	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+const (
+	enableFocusReport  = "\x1b[?1004h"
+	disableFocusReport = "\x1b[?1004l"
 )
 
 type errMsg error
 
 type tuiModel struct {
-	textarea    textarea.Model
+	textInput   textinput.Model
 	err         error
 	manager     *Manager
 	submitting  bool
@@ -25,15 +31,16 @@ type tuiModel struct {
 	history     []string
 	histIndex   int
 	histPath    string
+	width       int
 }
 
 func initialModel(manager *Manager, initMessage string) tuiModel {
-	ti := textarea.New()
-	ti.Placeholder = "Type a message..."
+	ti := textinput.New()
+	ti.Placeholder = "Type your message or \\command..."
+	ti.Prompt = manager.GetPrompt()
 	ti.Focus()
-	ti.CharLimit = 0 // No limit
-	ti.SetHeight(3)
-	ti.ShowLineNumbers = false
+	ti.CharLimit = 0
+	ti.Width = 0
 
 	if initMessage != "" {
 		ti.SetValue(initMessage)
@@ -43,7 +50,7 @@ func initialModel(manager *Manager, initMessage string) tuiModel {
 	entries := loadHistory(hp)
 
 	return tuiModel{
-		textarea:    ti,
+		textInput:   ti,
 		err:         nil,
 		manager:     manager,
 		initMessage: initMessage,
@@ -87,7 +94,7 @@ func (m *tuiModel) showHistoryAt(i int) {
 		return
 	}
 	m.histIndex = i
-	m.textarea.SetValue(m.history[i])
+	m.textInput.SetValue(m.history[i])
 }
 
 func (m *tuiModel) prevHistory() {
@@ -110,14 +117,17 @@ func (m *tuiModel) nextHistory() {
 	}
 	if m.histIndex >= len(m.history)-1 {
 		m.histIndex = -1
-		m.textarea.SetValue("")
+		m.textInput.SetValue("")
 		return
 	}
 	m.showHistoryAt(m.histIndex + 1)
 }
 
 func (m tuiModel) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(
+		textinput.Blink,
+		tea.Printf(enableFocusReport),
+	)
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -125,11 +135,28 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.FocusMsg:
+		cmd = m.textInput.Focus()
+		return m, cmd
+	case tea.BlurMsg:
+		m.textInput.Blur()
+		return m, nil
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		available := m.width - 4
+		if available < 1 {
+			available = 1
+		}
+		m.textInput.Width = available - len(m.textInput.Prompt)
+		if m.textInput.Width < 1 {
+			m.textInput.Width = 1
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEsc:
-			if m.textarea.Focused() {
-				m.textarea.Blur()
+			if m.textInput.Focused() {
+				m.textInput.Blur()
 			}
 		case tea.KeyCtrlC:
 			return m, tea.Quit
@@ -177,7 +204,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Alt+Enter (if possible) -> Newline (handled by textarea if we let it pass?)
 			// Or we can just use the value.
 
-			val := m.textarea.Value()
+			val := m.textInput.Value()
 			if strings.TrimSpace(val) == "" {
 				return m, nil
 			}
@@ -204,8 +231,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		default:
-			if !m.textarea.Focused() {
-				cmd = m.textarea.Focus()
+			if !m.textInput.Focused() {
+				cmd = m.textInput.Focus()
 				cmds = append(cmds, cmd)
 			}
 		}
@@ -215,15 +242,28 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.textarea, cmd = m.textarea.Update(msg)
+	m.textInput, cmd = m.textInput.Update(msg)
 	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
 func (m tuiModel) View() string {
+	borderColor := lipgloss.Color("62")
+	if !m.textInput.Focused() {
+		borderColor = lipgloss.Color("240")
+	}
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Width(w)
 	return fmt.Sprintf(
 		"\n%s\n\n%s",
-		m.textarea.View(),
+		box.Render(m.textInput.View()),
 		"(Ctrl+C to quit, Enter to send)",
 	)
 }
@@ -254,7 +294,7 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 		}
 
 		if m.submitting {
-			input := m.textarea.Value()
+			input := m.textInput.Value()
 
 			// Check for exit/quit
 			trimmed := strings.TrimSpace(input)
@@ -272,7 +312,7 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 				c.processInput(input)
 			}
 		} else {
-			// User quit without submitting (Ctrl+C)
+			fmt.Print(disableFocusReport)
 			return nil
 		}
 	}
