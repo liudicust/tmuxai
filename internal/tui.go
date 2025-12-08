@@ -3,8 +3,10 @@ package internal
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/alvinunreal/tmuxai/config"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -20,6 +22,9 @@ type tuiModel struct {
 	initMessage string
 	ctx         context.Context
 	cancel      context.CancelFunc
+	history     []string
+	histIndex   int
+	histPath    string
 }
 
 func initialModel(manager *Manager, initMessage string) tuiModel {
@@ -34,12 +39,81 @@ func initialModel(manager *Manager, initMessage string) tuiModel {
 		ti.SetValue(initMessage)
 	}
 
+	hp := defaultHistoryPath()
+	entries := loadHistory(hp)
+
 	return tuiModel{
 		textarea:    ti,
 		err:         nil,
 		manager:     manager,
 		initMessage: initMessage,
+		history:     entries,
+		histIndex:   -1,
+		histPath:    hp,
 	}
+}
+
+func defaultHistoryPath() string {
+	return config.GetConfigFilePath("history.txt")
+}
+
+func loadHistory(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return []string{}
+	}
+	s := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
+	if len(s) > 0 && s[len(s)-1] == "" {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+func (m *tuiModel) saveHistory() {
+	_ = os.WriteFile(m.histPath, []byte(strings.Join(m.history, "\n")), 0644)
+}
+
+func (m *tuiModel) appendHistory(val string) {
+	if strings.TrimSpace(val) == "" {
+		return
+	}
+	m.history = append(m.history, val)
+	m.histIndex = -1
+	m.saveHistory()
+}
+
+func (m *tuiModel) showHistoryAt(i int) {
+	if i < 0 || i >= len(m.history) {
+		return
+	}
+	m.histIndex = i
+	m.textarea.SetValue(m.history[i])
+}
+
+func (m *tuiModel) prevHistory() {
+	if len(m.history) == 0 {
+		return
+	}
+	if m.histIndex <= 0 {
+		m.showHistoryAt(len(m.history) - 1)
+		return
+	}
+	m.showHistoryAt(m.histIndex - 1)
+}
+
+func (m *tuiModel) nextHistory() {
+	if len(m.history) == 0 {
+		return
+	}
+	if m.histIndex < 0 {
+		return
+	}
+	if m.histIndex >= len(m.history)-1 {
+		m.histIndex = -1
+		m.textarea.SetValue("")
+		return
+	}
+	m.showHistoryAt(m.histIndex + 1)
 }
 
 func (m tuiModel) Init() tea.Cmd {
@@ -59,6 +133,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyUp:
+			m.prevHistory()
+			return m, nil
+		case tea.KeyDown:
+			m.nextHistory()
+			return m, nil
 		case tea.KeyEnter:
 			// Handle Shift+Enter for newline
 			// Note: Bubble Tea doesn't distinguish Shift+Enter from Enter by default in some terminals,
@@ -101,6 +181,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(val) == "" {
 				return m, nil
 			}
+			m.appendHistory(val)
 
 			// We submit
 			m.submitting = true
