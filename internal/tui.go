@@ -260,7 +260,7 @@ func (m tuiModel) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Padding(0, 1).
-		Width(w)
+		Width(w - 2)
 	return fmt.Sprintf(
 		"\n%s\n\n%s",
 		box.Render(m.textInput.View()),
