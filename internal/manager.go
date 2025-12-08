@@ -84,9 +84,10 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		system.TmuxSelectPane(chatPaneId)
 		args := strings.Join(os.Args[1:], " ")
 		system.TmuxSendCommandToPane(chatPaneId, "cnp-ai "+args, true)
-		system.TmuxSendCommandToPane(chatPaneId, "C-l", false)
+		//system.TmuxSendCommandToPane(chatPaneId, "C-l", false)
+		system.TmuxClearPane(chatPaneId)
 		// shell initialization may take some time
-		time.Sleep(1 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 		system.TmuxSendCommandToPane(paneId, "Enter", false)
 		err = system.TmuxAttachSession(paneId)
 		if err != nil {
