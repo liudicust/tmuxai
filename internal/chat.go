@@ -3,17 +3,12 @@ package internal
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
 
-	"github.com/alvinunreal/tmuxai/config"
-	"github.com/nyaosorg/go-readline-ny"
 	"github.com/nyaosorg/go-readline-ny/completion"
-	"github.com/nyaosorg/go-readline-ny/keys"
-	"github.com/nyaosorg/go-readline-ny/simplehistory"
 )
 
 // Message represents a chat message
@@ -37,80 +32,7 @@ func NewCLIInterface(manager *Manager) *CLIInterface {
 
 // Start starts the CLI interface
 func (c *CLIInterface) Start(initMessage string) error {
-	c.printWelcomeMessage()
-
-	// Initialize history
-	history := simplehistory.New()
-	historyFilePath := config.GetConfigFilePath("history")
-
-	// Load history from file if it exists
-	if historyData, err := os.ReadFile(historyFilePath); err == nil {
-		for _, line := range strings.Split(string(historyData), "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				history.Add(line)
-			}
-		}
-	}
-
-	// Initialize editor
-	editor := &readline.Editor{
-		PromptWriter: func(w io.Writer) (int, error) {
-			return io.WriteString(w, c.manager.GetPrompt())
-		},
-		History:        history,
-		HistoryCycling: true,
-	}
-
-	// Bind TAB key to completion
-	editor.BindKey(keys.CtrlI, c.newCompleter())
-
-	if initMessage != "" {
-		fmt.Printf("%s%s\n", c.manager.GetPrompt(), initMessage)
-		c.processInput(initMessage)
-	}
-
-	ctx := context.Background()
-
-	for {
-		line, err := editor.ReadLine(ctx)
-
-		if err == readline.CtrlC {
-			// Ctrl+C pressed, clear the line and continue
-			continue
-		} else if err == io.EOF {
-			// Ctrl+D pressed, exit
-			return nil
-		} else if err != nil {
-			return err
-		}
-
-		// Save history
-		if line != "" {
-			history.Add(line)
-
-			// Build history data by iterating through all entries
-			historyLines := make([]string, 0, history.Len())
-			for i := 0; i < history.Len(); i++ {
-				historyLines = append(historyLines, history.At(i))
-			}
-			historyData := strings.Join(historyLines, "\n")
-			os.WriteFile(historyFilePath, []byte(historyData), 0644)
-		}
-
-		// Process the input (preserving multiline content)
-		input := line // Keep the original line including newlines
-
-		// Check for exit/quit commands (only if it's the entire line content)
-		trimmed := strings.TrimSpace(input)
-		if trimmed == "exit" || trimmed == "quit" {
-			return nil
-		}
-		if trimmed == "" {
-			continue
-		}
-
-		c.processInput(input)
-	}
+	return c.StartTUI(initMessage)
 }
 
 // printWelcomeMessage prints a welcome message
