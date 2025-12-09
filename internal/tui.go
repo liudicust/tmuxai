@@ -50,6 +50,7 @@ type tuiModel struct {
 	histIndex   int
 	histPath    string
 	width       int
+	height      int
 }
 
 func initialModel(manager *Manager, initMessage string) tuiModel {
@@ -143,8 +144,6 @@ func (m *tuiModel) nextHistory() {
 
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(
-		tea.ClearScreen,
-		textinput.Blink,
 		tea.Printf(enableFocusReport),
 		focusTick(m.manager),
 	)
@@ -174,6 +173,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		available := m.width - 4
 		if available < 1 {
 			available = 1
@@ -293,10 +293,7 @@ func (m tuiModel) View() string {
 		Padding(0, 1).
 		Margin(0).
 		Width(w - 2)
-	return fmt.Sprintf(
-		"%s",
-		box.Render(m.textInput.View()),
-	)
+	return box.Render(m.textInput.View())
 }
 
 // StartTUI starts the Bubble Tea interface
@@ -310,8 +307,8 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 	}
 
 	for {
-		// Initialize the model in alt screen to render from the very top
-		p := tea.NewProgram(initialModel(c.manager, ""), tea.WithAltScreen())
+		// Initialize the model on the normal screen to preserve existing outputs
+		p := tea.NewProgram(initialModel(c.manager, ""))
 
 		// Run the program
 		finalModel, err := p.Run()
