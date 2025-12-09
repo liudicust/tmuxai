@@ -125,6 +125,7 @@ func (m *tuiModel) nextHistory() {
 
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(
+		tea.ClearScreen,
 		textinput.Blink,
 		tea.Printf(enableFocusReport),
 	)
@@ -260,17 +261,17 @@ func (m tuiModel) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Padding(0, 1).
+		Margin(0).
 		Width(w - 2)
 	return fmt.Sprintf(
-		"\n%s\n\n%s",
+		"%s",
 		box.Render(m.textInput.View()),
-		"(Ctrl+C to quit, Enter to send)",
 	)
 }
 
 // StartTUI starts the Bubble Tea interface
 func (c *CLIInterface) StartTUI(initMessage string) error {
-	c.printWelcomeMessage()
+	//c.printWelcomeMessage()
 
 	// Initial message handling
 	if initMessage != "" {
@@ -279,8 +280,8 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 	}
 
 	for {
-		// Initialize the model
-		p := tea.NewProgram(initialModel(c.manager, ""))
+		// Initialize the model in alt screen to render from the very top
+		p := tea.NewProgram(initialModel(c.manager, ""), tea.WithAltScreen())
 
 		// Run the program
 		finalModel, err := p.Run()
@@ -303,12 +304,16 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 			}
 
 			if trimmed != "" {
-				// We need to print the prompt and input because the TUI clears it or we want a log
+				lower := strings.ToLower(strings.TrimSpace(input))
+				if strings.HasPrefix(lower, "/") {
+					parts := strings.Fields(lower)
+					if len(parts) > 0 {
+						if parts[0] == "/reset" || parts[0] == "/clear" {
+							fmt.Print(disableFocusReport)
+						}
+					}
+				}
 				fmt.Printf("%s%s\n", c.manager.GetPrompt(), input)
-
-				// Process the input
-				// This function writes to stdout/stderr, so we must be out of Bubble Tea alt screen (or not using alt screen)
-				// By default tea.NewProgram doesn't use alt screen unless configured.
 				c.processInput(input)
 			}
 		} else {

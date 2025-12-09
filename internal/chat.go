@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -37,9 +36,7 @@ func (c *CLIInterface) Start(initMessage string) error {
 
 // printWelcomeMessage prints a welcome message
 func (c *CLIInterface) printWelcomeMessage() {
-	fmt.Println()
-	fmt.Println("Type '/help' for a list of commands, '/exit' to quit")
-	fmt.Println()
+	return
 }
 
 func (c *CLIInterface) processInput(input string) {
