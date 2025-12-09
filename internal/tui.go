@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alvinunreal/tmuxai/config"
+	"github.com/alvinunreal/tmuxai/system"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,6 +20,22 @@ const (
 )
 
 type errMsg error
+
+type checkFocusMsg struct{ active bool }
+
+func isPaneActive(mgr *Manager) bool {
+	details, err := system.TmuxPanesDetails(mgr.PaneId)
+	if err != nil || len(details) == 0 {
+		return false
+	}
+	return details[0].IsActive == 1
+}
+
+func focusTick(mgr *Manager) tea.Cmd {
+	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
+		return checkFocusMsg{active: isPaneActive(mgr)}
+	})
+}
 
 type tuiModel struct {
 	textInput   textinput.Model
@@ -38,7 +56,7 @@ func initialModel(manager *Manager, initMessage string) tuiModel {
 	ti := textinput.New()
 	ti.Placeholder = "Type your message or \\command..."
 	ti.Prompt = manager.GetPrompt()
-	ti.Focus()
+	ti.Blur()
 	ti.CharLimit = 0
 	ti.Width = 0
 
@@ -128,6 +146,7 @@ func (m tuiModel) Init() tea.Cmd {
 		tea.ClearScreen,
 		textinput.Blink,
 		tea.Printf(enableFocusReport),
+		focusTick(m.manager),
 	)
 }
 
@@ -136,9 +155,20 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case checkFocusMsg:
+		if msg.active {
+			if !m.textInput.Focused() {
+				m.textInput.Focus()
+				return m, tea.Batch(textinput.Blink, focusTick(m.manager))
+			}
+		} else {
+			if m.textInput.Focused() {
+				m.textInput.Blur()
+			}
+		}
+		return m, focusTick(m.manager)
 	case tea.FocusMsg:
-		cmd = m.textInput.Focus()
-		return m, cmd
+		return m, tea.Batch(m.textInput.Focus(), textinput.Blink)
 	case tea.BlurMsg:
 		m.textInput.Blur()
 		return m, nil
