@@ -340,7 +340,8 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 						}
 					}
 				}
-				fmt.Printf("%s%s\n", c.manager.GetPrompt(), input)
+				//fmt.Printf("%s%s\n", c.manager.GetPrompt(), input)
+
 				c.processInput(input)
 			}
 		} else {

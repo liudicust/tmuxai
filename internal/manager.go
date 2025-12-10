@@ -9,6 +9,7 @@ import (
 	"github.com/alvinunreal/tmuxai/config"
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 )
 
@@ -133,7 +134,23 @@ func (m *Manager) Start(initMessage string) error {
 }
 
 func (m *Manager) Println(msg string) {
-	fmt.Println(m.GetPrompt() + msg)
+	// Add a newline to separate from previous TUI content
+	fmt.Println()
+
+	// Print the prompt first (it has its own coloring)
+	fmt.Println(m.GetPrompt())
+
+	if msg != "" {
+		// Create a style for the message content
+		style := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, false, true).
+			BorderForeground(lipgloss.Color("62")). // A nice purple/blue
+			PaddingLeft(1).
+			MarginLeft(2)
+
+		// Print the message using the style
+		fmt.Println(style.Render(msg))
+	}
 }
 
 func (m *Manager) GetConfig() *config.Config {

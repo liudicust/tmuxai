@@ -158,7 +158,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// colorize code blocks in the response
 	if r.Message != "" {
-		fmt.Println(system.Cosmetics(r.Message))
+		m.Println(system.Cosmetics(r.Message))
 	}
 
 	// Don't append to history if AI is waiting for the pane or is watch mode no comment
