@@ -7,9 +7,53 @@ import (
 
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
-	"github.com/briandowns/spinner"
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 )
+
+type spinnerModel struct {
+	spinner  spinner.Model
+	quitting bool
+	err      error
+}
+
+func initialSpinnerModel() spinnerModel {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	return spinnerModel{spinner: s}
+}
+
+func (m spinnerModel) Init() tea.Cmd {
+	return m.spinner.Tick
+}
+
+func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "q" || msg.String() == "esc" || msg.String() == "ctrl+c" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
+	case tea.QuitMsg:
+		m.quitting = true
+		return m, tea.Quit
+	default:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m spinnerModel) View() string {
+	if m.quitting {
+		return ""
+	}
+	return fmt.Sprintf(" %s Thinking...", m.spinner.View())
+}
 
 // Main function to process regular user messages
 // Returns true if the request was accomplished and no further processing should happen
@@ -20,12 +64,27 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		m.squashHistory()
 	}
 
-	s := spinner.New(spinner.CharSets[39], 100*time.Millisecond)
-	s.Start()
+	// Add a newline to separate spinner from previous output (input box)
+	fmt.Println()
+
+	// Start bubble tea spinner in a goroutine
+	spinnerProgram := tea.NewProgram(initialSpinnerModel())
+	spinnerDone := make(chan struct{})
+	go func() {
+		if _, err := spinnerProgram.Run(); err != nil {
+			logger.Error("Spinner error: %v", err)
+		}
+		close(spinnerDone)
+	}()
+
+	stopSpinner := func() {
+		spinnerProgram.Quit()
+		<-spinnerDone
+	}
 
 	// check for status change before processing
 	if m.Status == "" {
-		s.Stop()
+		stopSpinner()
 		return false
 	}
 
@@ -57,7 +116,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	response, err := m.AiClient.GetResponseFromChatMessages(ctx, sending, m.GetOpenRouterModel())
 	if err != nil {
-		s.Stop()
+		stopSpinner()
 		m.Status = ""
 
 		if ctx.Err() == context.Canceled {
@@ -78,13 +137,13 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// check for status change again
 	if m.Status == "" {
-		s.Stop()
+		stopSpinner()
 		return false
 	}
 
 	r, err := m.parseAIResponse(response)
 	if err != nil {
-		s.Stop()
+		stopSpinner()
 		m.Status = ""
 
 		// Log both to console and debug file
@@ -105,7 +164,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	logger.Debug("AIResponse: %s", r.String())
 
-	s.Stop()
+	stopSpinner()
 
 	responseMsg := ChatMessage{
 		Content:   response,
