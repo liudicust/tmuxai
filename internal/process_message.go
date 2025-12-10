@@ -64,9 +64,6 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		m.squashHistory()
 	}
 
-	// Add a newline to separate spinner from previous output (input box)
-	fmt.Println()
-
 	// Start bubble tea spinner in a goroutine
 	spinnerProgram := tea.NewProgram(initialSpinnerModel())
 	spinnerDone := make(chan struct{})
@@ -239,7 +236,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 			isSafe = true
 		}
 		if isSafe {
-			m.Println("Executing command: " + command)
+			//m.Println("Executing command: " + command)
 			if m.ExecPane.IsPrepared {
 				m.ExecWaitCapture(command)
 			} else {
