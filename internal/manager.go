@@ -134,22 +134,17 @@ func (m *Manager) Start(initMessage string) error {
 }
 
 func (m *Manager) Println(msg string) {
-	// Add a newline to separate from previous TUI content
 	fmt.Println()
-
-	// Print the prompt first (it has its own coloring)
-	fmt.Println(m.GetPrompt())
-
-	if msg != "" {
-		// Create a style for the message content
-		style := lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(lipgloss.Color("62")). // A nice purple/blue
-			PaddingLeft(1).
-			MarginLeft(2)
-
-		// Print the message using the style
-		fmt.Println(style.Render(msg))
+	if msg == "" {
+		return
+	}
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("62")).
+		Bold(true).
+		Render("•")
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		fmt.Println(bullet + " " + line)
 	}
 }
 
