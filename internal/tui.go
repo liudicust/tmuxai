@@ -296,6 +296,32 @@ func (m tuiModel) View() string {
 	return box.Render(m.textInput.View())
 }
 
+func clearInputBox(m tuiModel) {
+	borderColor := lipgloss.Color("62")
+	if !m.textInput.Focused() {
+		borderColor = lipgloss.Color("240")
+	}
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Margin(0).
+		Width(w - 2)
+	content := box.Render(m.textInput.View())
+	bh := lipgloss.Height(content)
+	for i := 0; i < bh; i++ {
+		fmt.Print("\r\033[K")
+		if i < bh-1 {
+			fmt.Print("\x1b[1A")
+		}
+	}
+	//fmt.Print("\r\033[K\n")
+}
+
 // StartTUI starts the Bubble Tea interface
 func (c *CLIInterface) StartTUI(initMessage string) error {
 	//c.printWelcomeMessage()
@@ -322,6 +348,7 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 		}
 
 		if m.submitting {
+			clearInputBox(m)
 			input := m.textInput.Value()
 
 			// Check for exit/quit

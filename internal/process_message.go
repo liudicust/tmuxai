@@ -7,52 +7,35 @@ import (
 
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 )
 
-type spinnerModel struct {
-	spinner  spinner.Model
-	quitting bool
-	err      error
-}
-
-func initialSpinnerModel() spinnerModel {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	return spinnerModel{spinner: s}
-}
-
-func (m spinnerModel) Init() tea.Cmd {
-	return m.spinner.Tick
-}
-
-func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "q" || msg.String() == "esc" || msg.String() == "ctrl+c" {
-			m.quitting = true
-			return m, tea.Quit
+func startInlineSpinner(text string) func() {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	fmt.Print("\r\033[K")
+	frames := []string{"-", "\\", "|", "/"}
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-stop:
+				fmt.Print("\r\033[K")
+				close(done)
+				return
+			default:
+			}
+			fmt.Print("\r\033[K")
+			fmt.Printf("%s %s", frames[i%len(frames)], text)
+			i++
+			time.Sleep(100 * time.Millisecond)
 		}
-		return m, nil
-	case tea.QuitMsg:
-		m.quitting = true
-		return m, tea.Quit
-	default:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+	}()
+	return func() {
+		close(stop)
+		<-done
+		fmt.Print("\r\033[K")
 	}
-}
-
-func (m spinnerModel) View() string {
-	if m.quitting {
-		return ""
-	}
-	return fmt.Sprintf(" %s Thinking...", m.spinner.View())
 }
 
 // Main function to process regular user messages
@@ -64,20 +47,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		m.squashHistory()
 	}
 
-	// Start bubble tea spinner in a goroutine
-	spinnerProgram := tea.NewProgram(initialSpinnerModel())
-	spinnerDone := make(chan struct{})
-	go func() {
-		if _, err := spinnerProgram.Run(); err != nil {
-			logger.Error("Spinner error: %v", err)
-		}
-		close(spinnerDone)
-	}()
-
-	stopSpinner := func() {
-		spinnerProgram.Quit()
-		<-spinnerDone
-	}
+	stopSpinner := startInlineSpinner("Thinking...")
 
 	// check for status change before processing
 	if m.Status == "" {
@@ -302,7 +272,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 	// observe or prepared mode
 	if r.PasteMultilineContent != "" {
 		code, _ := system.HighlightCode("txt", r.PasteMultilineContent)
-		fmt.Println(code)
+		m.Println(code)
 
 		isSafe := false
 		if m.GetPasteMultilineConfirm() {

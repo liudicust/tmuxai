@@ -134,10 +134,11 @@ func (m *Manager) Start(initMessage string) error {
 }
 
 func (m *Manager) Println(msg string) {
-	fmt.Println()
+	fmt.Print("\r\033[K")
 	if msg == "" {
 		return
 	}
+	fmt.Println()
 	bullet := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("62")).
 		Bold(true).
