@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/alvinunreal/tmuxai/config"
@@ -23,6 +24,26 @@ type errMsg error
 
 type checkFocusMsg struct{ active bool }
 
+var lastFocusActive bool
+var lastFocusCheck time.Time
+var focusChecking int32
+
+func readActive(mgr *Manager) bool {
+	if time.Since(lastFocusCheck) < 300*time.Millisecond || atomic.LoadInt32(&focusChecking) == 1 {
+		return lastFocusActive
+	}
+	if !atomic.CompareAndSwapInt32(&focusChecking, 0, 1) {
+		return lastFocusActive
+	}
+	go func() {
+		a := isPaneActive(mgr)
+		lastFocusActive = a
+		lastFocusCheck = time.Now()
+		atomic.StoreInt32(&focusChecking, 0)
+	}()
+	return lastFocusActive
+}
+
 func isPaneActive(mgr *Manager) bool {
 	details, err := system.TmuxPanesDetails(mgr.PaneId)
 	if err != nil || len(details) == 0 {
@@ -32,8 +53,8 @@ func isPaneActive(mgr *Manager) bool {
 }
 
 func focusTick(mgr *Manager) tea.Cmd {
-	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
-		return checkFocusMsg{active: isPaneActive(mgr)}
+	return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg {
+		return checkFocusMsg{active: readActive(mgr)}
 	})
 }
 
@@ -178,7 +199,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if available < 1 {
 			available = 1
 		}
-		m.textInput.Width = available - len(m.textInput.Prompt)
+		m.textInput.Width = available - lipgloss.Width(m.textInput.Prompt)
 		if m.textInput.Width < 1 {
 			m.textInput.Width = 1
 		}
