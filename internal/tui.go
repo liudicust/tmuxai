@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/alvinunreal/tmuxai/config"
 	"github.com/alvinunreal/tmuxai/system"
@@ -74,13 +78,25 @@ type tuiModel struct {
 	height      int
 }
 
-func initialModel(manager *Manager, initMessage string) tuiModel {
+func initialModel(manager *Manager, initMessage string, width, height int) tuiModel {
 	ti := textinput.New()
 	ti.Placeholder = "Type your message or \\command..."
 	ti.Prompt = manager.GetPrompt()
 	ti.Blur()
 	ti.CharLimit = 0
-	ti.Width = 0
+
+	if width > 0 {
+		available := width - 4
+		if available < 1 {
+			available = 1
+		}
+		ti.Width = available - lipgloss.Width(ti.Prompt)
+		if ti.Width < 1 {
+			ti.Width = 1
+		}
+	} else {
+		ti.Width = 0
+	}
 
 	if initMessage != "" {
 		ti.SetValue(initMessage)
@@ -97,6 +113,8 @@ func initialModel(manager *Manager, initMessage string) tuiModel {
 		history:     entries,
 		histIndex:   -1,
 		histPath:    hp,
+		width:       width,
+		height:      height,
 	}
 }
 
@@ -353,9 +371,46 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 		c.processInput(initMessage)
 	}
 
+	firstRun := true
 	for {
+		// Get current terminal size
+		w, h, err := term.GetSize(int(os.Stdout.Fd()))
+		if err != nil {
+			w, h, err = term.GetSize(int(os.Stderr.Fd()))
+		}
+		if err != nil {
+			w, h, err = term.GetSize(int(os.Stdin.Fd()))
+		}
+		if err != nil || w == 0 {
+			// Default fallback if we can't get size
+			w = 80
+			h = 24
+		}
+
+		// Smart wait for resize on first run if width is suspiciously small
+		if firstRun && w < 60 {
+			tmW := getTmuxWindowWidth()
+			// If tmux window is significantly larger, we might be in a temporary split/resize
+			if tmW > 0 && w < tmW {
+				// Wait up to 1 second for resize
+				for i := 0; i < 10; i++ {
+					time.Sleep(100 * time.Millisecond)
+					newW, newH, err := term.GetSize(int(os.Stdout.Fd()))
+					if err == nil && newW > w {
+						w = newW
+						h = newH
+						// If we grew significantly or reached target, stop waiting
+						if newW >= tmW-2 {
+							break
+						}
+					}
+				}
+			}
+		}
+		firstRun = false
+
 		// Initialize the model on the normal screen to preserve existing outputs
-		p := tea.NewProgram(initialModel(c.manager, ""))
+		p := tea.NewProgram(initialModel(c.manager, "", w, h))
 
 		// Run the program
 		finalModel, err := p.Run()
@@ -397,4 +452,14 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 			return nil
 		}
 	}
+}
+
+func getTmuxWindowWidth() int {
+	cmd := exec.Command("tmux", "display-message", "-p", "#{window_width}")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	w, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return w
 }
