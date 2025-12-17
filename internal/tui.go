@@ -206,8 +206,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, focusTick(m.manager)
 	case tea.FocusMsg:
+		lastFocusActive = true
+		lastFocusCheck = time.Now()
 		return m, tea.Batch(m.textInput.Focus(), textinput.Blink)
 	case tea.BlurMsg:
+		lastFocusActive = false
+		lastFocusCheck = time.Now()
 		m.textInput.Blur()
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -301,10 +305,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		default:
-			if !m.textInput.Focused() {
-				cmd = m.textInput.Focus()
-				cmds = append(cmds, cmd)
-			}
+			// No default refocus logic
 		}
 
 	case errMsg:
