@@ -36,7 +36,7 @@ func Cosmetics(message string) string {
 		code := message[codeStart:codeEnd]
 
 		// Highlight code block
-		highlighted, err := HighlightCode(lang, code)
+		highlighted, err := HighlightCode(lang, code, "monokai")
 		if err != nil {
 			// Fallback: print as plain code block
 			highlighted = fmt.Sprintf("\n%s\n", code)

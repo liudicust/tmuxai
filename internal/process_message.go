@@ -176,7 +176,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 	// did AI follow our guidelines?
 	guidelineError, validResponse := m.aiFollowedGuidelines(r)
 	if !validResponse {
-		m.Println("AI didn't follow guidelines, trying again...")
+		m.Println("AI didn't follow guidelines, trying again...", StyleError)
 		m.Messages = append(m.Messages, currentMessage, responseMsg)
 		return m.ProcessUserMessage(ctx, guidelineError)
 
@@ -184,7 +184,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// colorize code blocks in the response
 	if r.Message != "" {
-		m.Println(system.Cosmetics(r.Message))
+		m.Println(system.Cosmetics(r.Message), StyleAI)
 	}
 
 	// Don't append to history if AI is waiting for the pane or is watch mode no comment
@@ -195,8 +195,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// observe/prepared mode
 	for _, execCommand := range r.ExecCommand {
-		code, _ := system.HighlightCode("sh", execCommand)
-		m.Println(code)
+		m.PrintCode(execCommand, "sh")
 
 		isSafe := false
 		command := execCommand
@@ -224,7 +223,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		// Show preview of all keys
 		keysPreview := "Keys to send:\n"
 		for i, sendKey := range r.SendKeys {
-			code, _ := system.HighlightCode("txt", sendKey)
+			code, _ := system.HighlightCode("txt", sendKey, "dracula")
 			if i == len(r.SendKeys)-1 {
 				keysPreview += code
 			} else {
@@ -232,7 +231,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 			}
 		}
 
-		m.Println(keysPreview)
+		m.Println(keysPreview, StyleCode)
 
 		// Determine confirmation message based on number of keys
 		confirmMessage := "Send this key?"
@@ -252,7 +251,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 		// Send each key with delay
 		for _, sendKey := range r.SendKeys {
-			m.Println("Sending keys: " + sendKey)
+			m.Println("Sending keys: "+sendKey, StyleInfo)
 			system.TmuxSendCommandToPane(m.ExecPane.Id, sendKey, false)
 			time.Sleep(1 * time.Second)
 		}
@@ -271,8 +270,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// observe or prepared mode
 	if r.PasteMultilineContent != "" {
-		code, _ := system.HighlightCode("txt", r.PasteMultilineContent)
-		m.Println(code)
+		m.PrintCode(r.PasteMultilineContent, "txt")
 
 		isSafe := false
 		if m.GetPasteMultilineConfirm() {
@@ -282,7 +280,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		}
 
 		if isSafe {
-			m.Println("Pasting...")
+			m.Println("Pasting...", StyleInfo)
 			system.TmuxSendCommandToPane(m.ExecPane.Id, r.PasteMultilineContent, true)
 			time.Sleep(1 * time.Second)
 		} else {

@@ -66,7 +66,7 @@ func GetProcessArgs(pid int) string {
 	return cmdOutput
 }
 
-func HighlightCode(language string, code string) (string, error) {
+func HighlightCode(language string, code string, styleName string) (string, error) {
 	// Get the lexer for the specified language
 	lexer := lexers.Get(language)
 	if lexer == nil {
@@ -77,7 +77,10 @@ func HighlightCode(language string, code string) (string, error) {
 	}
 
 	// Choose a style (theme) - using monokai for good terminal visibility
-	style := styles.Get("monokai")
+	if styleName == "" {
+		styleName = "monokai"
+	}
+	style := styles.Get(styleName)
 	if style == nil {
 		style = styles.Fallback
 	}

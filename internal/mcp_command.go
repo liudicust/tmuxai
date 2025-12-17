@@ -23,7 +23,7 @@ func handleMcpCommand(m *Manager, args []string) {
 	case "help":
 		showMcpHelp(m)
 	default:
-		m.Println(fmt.Sprintf("Unknown /mcp subcommand: %s. Use '/mcp help' for more info.", subcommand))
+		m.Println(fmt.Sprintf("Unknown /mcp subcommand: %s. Use '/mcp help' for more info.", subcommand), StyleError)
 	}
 }
 
@@ -42,12 +42,12 @@ Available subcommands:
   /mcp help
     Show this help message.
 `
-	m.Println(helpText)
+	m.Println(helpText, StyleInfo)
 }
 
 func selectMcpServers(m *Manager) {
 	if len(m.Config.Mcp.Servers) == 0 {
-		m.Println("No MCP servers configured. Please add servers to your config file.")
+		m.Println("No MCP servers configured. Please add servers to your config file.", StyleInfo)
 		return
 	}
 
@@ -95,7 +95,7 @@ func selectMcpServers(m *Manager) {
 	// 执行两步选择（懒加载工具）
 	selections, err := system.InteractiveSelectServersAndTools(serverNames, preSelectedTools, loadTools)
 	if err != nil {
-		m.Println(fmt.Sprintf("Error in server and tool selection: %v", err))
+		m.Println(fmt.Sprintf("Error in server and tool selection: %v", err), StyleError)
 		return
 	}
 

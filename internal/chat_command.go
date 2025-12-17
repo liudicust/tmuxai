@@ -48,7 +48,7 @@ func (m *Manager) ProcessSubCommand(command string) {
 	// Get the first word from the command (e.g., "/watch" from "/watch something")
 	parts := strings.Fields(commandLower)
 	if len(parts) == 0 {
-		m.Println("Empty command")
+		m.Println("Empty command", StyleError)
 		return
 	}
 
@@ -57,7 +57,7 @@ func (m *Manager) ProcessSubCommand(command string) {
 	// Process the command using prefix matching
 	switch {
 	case prefixMatch(commandPrefix, "/help"):
-		m.Println(helpMessage)
+		m.Println(helpMessage, StyleInfo)
 		return
 
 	case prefixMatch(commandPrefix, "/info"):
@@ -69,7 +69,7 @@ func (m *Manager) ProcessSubCommand(command string) {
 		m.PrepareExecPane()
 		m.Messages = []ChatMessage{}
 		if m.ExecPane.IsPrepared {
-			m.Println("Exec pane prepared successfully")
+			m.Println("Exec pane prepared successfully", StyleSuccess)
 		}
 		fmt.Println(m.ExecPane.String())
 		m.parseExecPaneCommandHistory()

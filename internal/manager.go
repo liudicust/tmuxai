@@ -40,6 +40,19 @@ type CommandExecHistory struct {
 	Code    int
 }
 
+// PrintStyle defines the style for the Println method
+type PrintStyle int
+
+const (
+	StyleDefault PrintStyle = iota
+	StyleCommand
+	StyleAI
+	StyleError
+	StyleSuccess
+	StyleInfo
+	StyleCode
+)
+
 // Manager represents the TmuxAI manager agent
 type Manager struct {
 	Config           *config.Config
@@ -133,20 +146,85 @@ func (m *Manager) Start(initMessage string) error {
 	return nil
 }
 
-func (m *Manager) Println(msg string) {
+func (m *Manager) Println(msg string, styles ...PrintStyle) {
 	fmt.Print("\r\033[K")
 	if msg == "" {
 		return
 	}
 	fmt.Println()
-	bullet := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("62")).
-		Bold(true).
-		Render("•")
+
+	style := StyleDefault
+	if len(styles) > 0 {
+		style = styles[0]
+	}
+
+	var bullet string
+	var contentStyle lipgloss.Style
+
+	switch style {
+	case StyleCommand:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")). // Pink/Magenta for commands
+			Bold(true).
+			Render("🚀")
+		contentStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("212")) // Light Pink
+	case StyleAI:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("86")). // Cyan/Aqua for AI
+			Bold(true).
+			Render("👾")
+		contentStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")) // White/Gray
+	case StyleError:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")). // Red
+			Bold(true).
+			Render("✖")
+		contentStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196"))
+	case StyleSuccess:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("46")). // Green
+			Bold(true).
+			Render("✓")
+		contentStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("46"))
+	case StyleInfo:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("220")). // Yellow
+			Bold(true).
+			Render("ℹ")
+		contentStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("220"))
+	case StyleCode:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")). // Pink/Magenta for commands
+			Bold(true).
+			Render("🚀")
+		contentStyle = lipgloss.NewStyle() // No foreground color to preserve syntax highlighting
+	default:
+		bullet = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("62")).
+			Bold(true).
+			Render("•")
+		contentStyle = lipgloss.NewStyle()
+	}
+
 	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
 	for _, line := range lines {
-		fmt.Println(bullet + " " + line)
+		fmt.Println(bullet + " " + contentStyle.Render(line))
 	}
+}
+
+// PrintCode highlights the given code and prints it with the code style
+func (m *Manager) PrintCode(code string, language string) {
+	// Use dracula for code blocks executed by the agent
+	highlighted, err := system.HighlightCode(language, code, "dracula")
+	if err != nil {
+		highlighted = code
+	}
+	m.Println(highlighted, StyleCode)
 }
 
 func (m *Manager) GetConfig() *config.Config {
