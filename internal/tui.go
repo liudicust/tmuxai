@@ -183,7 +183,10 @@ func (m *tuiModel) nextHistory() {
 
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(
-		tea.Printf(enableFocusReport),
+		func() tea.Msg {
+			fmt.Print(enableFocusReport)
+			return nil
+		},
 		focusTick(m.manager),
 	)
 }
@@ -370,6 +373,10 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 	if initMessage != "" {
 		fmt.Printf("%s%s\n", c.manager.GetPrompt(), initMessage)
 		c.processInput(initMessage)
+	} else {
+		// Clear screen to hide the command invocation line
+		// Use \033[2J to clear screen and \033[1;1H to force cursor to top-left
+		fmt.Print("\033[2J\033[1;1H")
 	}
 
 	firstRun := true
