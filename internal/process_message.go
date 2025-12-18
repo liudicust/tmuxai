@@ -174,7 +174,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 	}
 
 	// did AI follow our guidelines?
-	guidelineError, validResponse := m.aiFollowedGuidelines(r)
+	guidelineError, validResponse := m.aiFollowedGuidelines(&r)
 	if !validResponse {
 		m.Println("AI didn't follow guidelines, trying again...", StyleError)
 		m.Messages = append(m.Messages, currentMessage, responseMsg)
@@ -338,7 +338,7 @@ func (m *Manager) startWatchMode(desc string) {
 	}
 }
 
-func (m *Manager) aiFollowedGuidelines(r AIResponse) (string, bool) {
+func (m *Manager) aiFollowedGuidelines(r *AIResponse) (string, bool) {
 	// Check if only one boolean is true in AI response
 	boolCount := 0
 	if r.RequestAccomplished {
@@ -360,7 +360,17 @@ func (m *Manager) aiFollowedGuidelines(r AIResponse) (string, bool) {
 
 	if boolCount > 1 {
 		logger.Error("aiFollowedGuidelines boolCount: %d", boolCount)
-		return "You didn't follow the guidelines. Only one boolean flag should be set to true in your response. Pay attention!", false
+		// Auto-correct: prioritize flags
+		if r.RequestAccomplished {
+			r.ExecPaneSeemsBusy = false
+			r.WaitingForUserResponse = false
+			r.NoComment = false
+		} else if r.ExecPaneSeemsBusy {
+			r.WaitingForUserResponse = false
+			r.NoComment = false
+		} else if r.WaitingForUserResponse {
+			r.NoComment = false
+		}
 	}
 
 	// Check if only one tag is used
@@ -378,6 +388,11 @@ func (m *Manager) aiFollowedGuidelines(r AIResponse) (string, bool) {
 
 	// watch mode has no xml tags, otherwise should be at least 1 xml tag in response
 	if !m.WatchMode && count+boolCount == 0 {
+		// If message is present but no tags, assume WaitingForUserResponse (chat mode)
+		if len(r.Message) > 0 {
+			r.WaitingForUserResponse = true
+			return "", true
+		}
 		return "You didn't follow the guidelines. You must use at least one XML tag in your response. Pay attention!", false
 	}
 

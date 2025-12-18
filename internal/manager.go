@@ -212,8 +212,15 @@ func (m *Manager) Println(msg string, styles ...PrintStyle) {
 	}
 
 	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
-	for _, line := range lines {
-		fmt.Println(bullet + " " + contentStyle.Render(line))
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		fmt.Println(prefix + " " + contentStyle.Render(line))
 	}
 }
 
