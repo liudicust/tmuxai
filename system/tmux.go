@@ -171,31 +171,21 @@ func TmuxAttachSession(paneId string) error {
 }
 
 func TmuxClearPane(paneId string) error {
-	paneDetails, err := TmuxPanesDetails(paneId)
-	if err != nil {
-		logger.Error("Failed to get pane details for %s: %v", paneId, err)
+	cmd := exec.Command("tmux", "clear-history", "-t", paneId)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		logger.Error("Failed to clear history for pane %s: %v, stderr: %s", paneId, err, stderr.String())
 		return err
 	}
 
-	if len(paneDetails) == 0 {
-		return fmt.Errorf("no pane details found for pane %s", paneId)
+	if current := os.Getenv("TMUX_PANE"); current != "" && current == paneId {
+		fmt.Print("\033[2J\033[1;1H")
+		logger.Debug("Successfully cleared current pane %s", paneId)
+		return nil
 	}
 
-	cmd := exec.Command("tmux", "split-window", "-vp", "100", "-t", paneId)
-	if err := cmd.Run(); err != nil {
-		logger.Error("Failed to split window for pane %s: %v", paneId, err)
-		return err
-	}
-
-	cmd = exec.Command("tmux", "clear-history", "-t", paneId)
-	if err := cmd.Run(); err != nil {
-		logger.Error("Failed to clear history for pane %s: %v", paneId, err)
-		return err
-	}
-
-	cmd = exec.Command("tmux", "kill-pane")
-	if err := cmd.Run(); err != nil {
-		logger.Error("Failed to kill temporary pane: %v", err)
+	if err := TmuxSendCommandToPane(paneId, "C-l", false); err != nil {
 		return err
 	}
 
