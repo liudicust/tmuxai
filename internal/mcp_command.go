@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -95,6 +96,9 @@ func selectMcpServers(m *Manager) {
 	// 执行两步选择（懒加载工具）
 	selections, err := system.InteractiveSelectServersAndTools(serverNames, preSelectedTools, loadTools)
 	if err != nil {
+		if errors.Is(err, system.ErrUserCancelledSelection) {
+			return
+		}
 		m.Println(fmt.Sprintf("Error in server and tool selection: %v", err), StyleError)
 		return
 	}

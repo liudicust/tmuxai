@@ -13,6 +13,8 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+var ErrUserCancelledSelection = errors.New("user cancelled selection")
+
 func truncateToWidth(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -453,7 +455,7 @@ func interactiveSelect(items []string, preSelected map[string]struct{}, opts mcp
 		return nil, errors.New("could not assert model")
 	}
 	if fm.cancelled || !fm.done {
-		return nil, errors.New("user cancelled selection")
+		return nil, ErrUserCancelledSelection
 	}
 
 	var out []string
@@ -563,7 +565,7 @@ func InteractiveSelectServersAndTools(
 
 		selectedToolDisplays, err := interactiveSelect(toolDisplayItems, preSelectedToolDisplays, mcpSelectOptions{Title: fmt.Sprintf("Select MCP Tools (%s)", serverName), Compact: true, Details: details, PreviewLines: 6})
 		if err != nil {
-			return nil, fmt.Errorf("error selecting tools for server '%s': %v", serverName, err)
+			return nil, fmt.Errorf("error selecting tools for server '%s': %w", serverName, err)
 		}
 
 		// 转换回工具名称
