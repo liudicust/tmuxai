@@ -3,115 +3,468 @@ package system
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
-	"github.com/trzsz/promptui"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
-// InteractiveSelect 使用 promptui 实现交互式多选功能
+func truncateToWidth(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	return runewidth.Truncate(s, w, "…")
+}
+
+type mcpSelectItemKind string
+
+const (
+	mcpSelectItemKindNormal  mcpSelectItemKind = "normal"
+	mcpSelectItemKindConfirm mcpSelectItemKind = "confirm"
+	mcpSelectItemKindExit    mcpSelectItemKind = "exit"
+	mcpSelectItemKindSep     mcpSelectItemKind = "sep"
+)
+
+type mcpSelectOptions struct {
+	Title        string
+	Compact      bool
+	Details      map[string]string
+	PreviewLines int
+}
+
+type mcpSelectItem struct {
+	label string
+	kind  mcpSelectItemKind
+}
+
+func (i mcpSelectItem) FilterValue() string {
+	return i.label
+}
+
+type mcpSelectDelegate struct {
+	selected map[string]bool
+	active   lipgloss.Style
+	normal   lipgloss.Style
+}
+
+func (d mcpSelectDelegate) Height() int  { return 1 }
+func (d mcpSelectDelegate) Spacing() int { return 0 }
+func (d mcpSelectDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd {
+	return nil
+}
+
+func (d mcpSelectDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	si, ok := item.(mcpSelectItem)
+	if !ok {
+		return
+	}
+
+	maxW := m.Width()
+	if maxW < 1 {
+		maxW = 1
+	}
+
+	var line string
+	switch si.kind {
+	case mcpSelectItemKindConfirm:
+		line = "✓ Confirm Selection"
+	case mcpSelectItemKindExit:
+		line = "❌ Exit"
+	case mcpSelectItemKindSep:
+		sepW := maxW
+		if sepW < 1 {
+			sepW = 1
+		}
+		line = strings.Repeat("─", sepW)
+	default:
+		box := "[ ]"
+		if d.selected[si.label] {
+			box = "[✓]"
+		}
+		line = fmt.Sprintf("%s %s", box, si.label)
+	}
+
+	prefix := "  "
+	style := d.normal
+	if index == m.Index() {
+		prefix = "▶ "
+		style = d.active
+	}
+
+	out := prefix + line
+	out = truncateToWidth(out, maxW)
+	_, _ = fmt.Fprint(w, style.Render(out))
+}
+
+type mcpSelectModel struct {
+	list         list.Model
+	items        []string
+	selected     map[string]bool
+	opts         mcpSelectOptions
+	done         bool
+	cancelled    bool
+	winW         int
+	contentH     int
+	listW        int
+	vp           viewport.Model
+	focusPreview bool
+	lastSelected string
+}
+
+func (m *mcpSelectModel) previewEnabled() bool {
+	return m.opts.Details != nil && m.opts.PreviewLines > 0
+}
+
+func (m mcpSelectModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m mcpSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		footerH := 1
+		contentH := msg.Height - footerH
+		if contentH < 1 {
+			contentH = 1
+		}
+
+		m.winW = msg.Width
+		m.contentH = contentH
+
+		if m.previewEnabled() {
+			sepW := 1
+			minListW := 24
+			minPreviewW := 30
+
+			listW := (msg.Width - sepW) / 2
+			if listW < minListW {
+				listW = minListW
+			}
+			if msg.Width < minListW+sepW+minPreviewW {
+				listW = msg.Width - sepW - minPreviewW
+				if listW < 1 {
+					listW = 1
+				}
+			}
+
+			vpW := msg.Width - sepW - listW
+			if vpW < 1 {
+				vpW = 1
+			}
+
+			m.listW = listW
+			m.list.SetSize(listW, contentH)
+			m.vp.Width = vpW
+			m.vp.Height = contentH
+			m.vp.SetContent(m.previewContent())
+			return m, nil
+		}
+
+		m.listW = msg.Width
+		m.list.SetSize(msg.Width, contentH)
+		m.vp.Width = 0
+		m.vp.Height = 0
+		return m, nil
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc", "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "tab":
+			if m.previewEnabled() && m.vp.Height > 0 {
+				m.focusPreview = !m.focusPreview
+				if m.focusPreview {
+					m.vp.SetContent(m.previewContent())
+				}
+			}
+			return m, nil
+		case "enter":
+			if m.focusPreview {
+				return m, nil
+			}
+			if li := m.list.SelectedItem(); li != nil {
+				if it, ok := li.(mcpSelectItem); ok {
+					switch it.kind {
+					case mcpSelectItemKindConfirm:
+						m.done = true
+						return m, tea.Quit
+					case mcpSelectItemKindExit:
+						m.cancelled = true
+						return m, tea.Quit
+					case mcpSelectItemKindSep:
+						return m, nil
+					default:
+						m.selected[it.label] = !m.selected[it.label]
+						return m, nil
+					}
+				}
+			}
+			return m, nil
+		case " ":
+			if m.focusPreview {
+				return m, nil
+			}
+			if li := m.list.SelectedItem(); li != nil {
+				if it, ok := li.(mcpSelectItem); ok {
+					if it.kind == mcpSelectItemKindNormal {
+						m.selected[it.label] = !m.selected[it.label]
+					}
+				}
+			}
+			return m, nil
+		case "a":
+			if m.focusPreview {
+				return m, nil
+			}
+			anyUnselected := false
+			for _, it := range m.items {
+				if !m.selected[it] {
+					anyUnselected = true
+					break
+				}
+			}
+			for _, it := range m.items {
+				m.selected[it] = anyUnselected
+			}
+			return m, nil
+		case "c":
+			m.done = true
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	if m.focusPreview {
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	}
+
+	m.list, cmd = m.list.Update(msg)
+	if m.previewEnabled() && m.vp.Height > 0 {
+		m.updatePreviewOnSelectionChange()
+	}
+	return m, cmd
+}
+
+func (m *mcpSelectModel) selectedKey() string {
+	if li := m.list.SelectedItem(); li != nil {
+		if it, ok := li.(mcpSelectItem); ok {
+			if it.kind == mcpSelectItemKindNormal {
+				return it.label
+			}
+		}
+	}
+	return ""
+}
+
+func splitToolDetail(content string) (string, []string) {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	idx := strings.Index(content, ":param ")
+	if idx < 0 {
+		return strings.TrimSpace(content), nil
+	}
+
+	desc := strings.TrimSpace(content[:idx])
+	paramBlob := content[idx:]
+	parts := strings.Split(paramBlob, ":param ")
+	params := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		params = append(params, ":param "+p)
+	}
+	return desc, params
+}
+
+func (m *mcpSelectModel) previewContent() string {
+	key := m.selectedKey()
+	if key == "" || m.opts.Details == nil {
+		return ""
+	}
+	content, ok := m.opts.Details[key]
+	if !ok {
+		return ""
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+
+	w := m.vp.Width
+	if w <= 0 {
+		w = m.winW - m.listW - 1
+	}
+	if w <= 0 {
+		w = 80
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true)
+	sectionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
+	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	paramStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+
+	desc, params := splitToolDetail(content)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(key))
+	b.WriteString("\n")
+	b.WriteString(sepStyle.Render(strings.Repeat("─", w)))
+
+	if strings.TrimSpace(desc) != "" {
+		b.WriteString("\n\n")
+		b.WriteString(sectionStyle.Render("Description"))
+		b.WriteString("\n")
+		b.WriteString(desc)
+	}
+
+	if len(params) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(sectionStyle.Render("Parameters"))
+		b.WriteString("\n")
+		for i, p := range params {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(paramStyle.Render(p))
+		}
+	}
+
+	return lipgloss.NewStyle().Width(w).Render(b.String())
+}
+
+func (m *mcpSelectModel) updatePreviewOnSelectionChange() {
+	key := m.selectedKey()
+	if key == m.lastSelected {
+		return
+	}
+	m.lastSelected = key
+	m.vp.GotoTop()
+	m.vp.SetContent(m.previewContent())
+}
+
+func (m mcpSelectModel) View() string {
+	selectedCount := 0
+	for _, it := range m.items {
+		if m.selected[it] {
+			selectedCount++
+		}
+	}
+
+	page := m.list.Paginator.Page + 1
+	totalPages := m.list.Paginator.TotalPages
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	footerText := "Enter/Space: toggle  c/Confirm: confirm  PgUp/PgDn: page  /: filter  Tab: focus details  Esc/Ctrl+C: cancel  a: all/none"
+	if m.opts.Compact {
+		footerText = "Enter/Space: toggle  c: confirm  PgUp/PgDn: page  /: filter  Tab: focus details  Esc/Ctrl+C: cancel  a: all/none"
+	}
+	footerText = fmt.Sprintf("%s  Selected: %d/%d  Page: %d/%d", footerText, selectedCount, len(m.items), page, totalPages)
+
+	w := m.winW
+	if w <= 0 {
+		w = m.list.Width()
+	}
+	if w > 0 {
+		footerText = truncateToWidth(footerText, w)
+	}
+	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(footerText)
+
+	if m.previewEnabled() && m.vp.Height > 0 {
+		left := m.list.View()
+
+		sep := strings.Repeat("│\n", m.contentH)
+		sep = strings.TrimSuffix(sep, "\n")
+		sep = lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(sep)
+
+		right := m.vp.View()
+		if !m.focusPreview {
+			right = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Render(right)
+		}
+
+		content := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
+		return content + "\n" + footer
+	}
+
+	return m.list.View() + "\n" + footer
+}
+
+// InteractiveSelect 使用 Bubble Tea 实现交互式多选功能
 // items: 可选择的项目列表
 // preSelected: 预先选中的项目（map[string]struct{}格式）
 func InteractiveSelect(items []string, preSelected map[string]struct{}) ([]string, error) {
+	return interactiveSelect(items, preSelected, mcpSelectOptions{Title: "Select Items"})
+}
+
+func interactiveSelect(items []string, preSelected map[string]struct{}, opts mcpSelectOptions) ([]string, error) {
 	if len(items) == 0 {
 		return nil, errors.New("no items to select")
 	}
 
-	// 初始化选择状态，根据 preSelected 设置已选中的项目
-	selectedItems := make(map[int]bool)
-	for i, item := range items {
-		if _, exists := preSelected[item]; exists {
-			selectedItems[i] = true
+	selected := make(map[string]bool)
+	for _, it := range items {
+		if _, ok := preSelected[it]; ok {
+			selected[it] = true
 		}
 	}
 
-	displayItems := make([]string, len(items))
-	for i, item := range items {
-		displayItems[i] = "[ ] " + item
+	listItems := make([]list.Item, 0, len(items)+3)
+	listItems = append(listItems,
+		mcpSelectItem{label: "✓ Confirm Selection", kind: mcpSelectItemKindConfirm},
+		mcpSelectItem{label: "❌ Exit", kind: mcpSelectItemKindExit},
+		mcpSelectItem{label: "---", kind: mcpSelectItemKindSep},
+	)
+	for _, it := range items {
+		listItems = append(listItems, mcpSelectItem{label: it, kind: mcpSelectItemKindNormal})
 	}
 
-	// 添加变量来跟踪光标位置
-	cursorPos := 0
+	d := mcpSelectDelegate{
+		selected: selected,
+		active:   lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Bold(true),
+		normal:   lipgloss.NewStyle(),
+	}
+	l := list.New(listItems, d, 0, 0)
+	if opts.Title != "" {
+		l.Title = opts.Title
+	} else {
+		l.Title = "Select Items"
+	}
 
-	for {
-		// 更新显示项目的选择状态
-		for i, item := range items {
-			if selectedItems[i] {
-				displayItems[i] = "[✓] " + item
-			} else {
-				displayItems[i] = "[ ] " + item
-			}
-		}
+	l.DisableQuitKeybindings()
+	l.SetShowHelp(false)
+	l.SetShowStatusBar(false)
 
-		// 在顶部添加退出选项、确认选项，然后是分隔符，再是列表
-		allOptions := []string{
-			"❌ Exit (Press Enter to quit)",
-			"✓ Confirm Selection",
-			"---",
-		}
-		allOptions = append(allOptions, displayItems...)
+	vp := viewport.New(0, 0)
+	p := tea.NewProgram(mcpSelectModel{list: l, items: items, selected: selected, opts: opts, vp: vp}, tea.WithAltScreen())
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
 
-		// 动态计算Size：根据项目数量调整，但保持在合理范围内
-		// 最小10，最大30，如果项目很多就用30让用户滚动查看
-		dynamicSize := len(allOptions)
-		if dynamicSize < 10 {
-			dynamicSize = 10
-		} else if dynamicSize > 30 {
-			dynamicSize = 30
-		}
+	fm, ok := finalModel.(mcpSelectModel)
+	if !ok {
+		return nil, errors.New("could not assert model")
+	}
+	if fm.cancelled || !fm.done {
+		return nil, errors.New("user cancelled selection")
+	}
 
-		prompt := promptui.Select{
-			Label:     "Select Items (↑↓: navigate, Space: toggle, Enter: confirm, Ctrl+C: quit)",
-			Items:     allOptions,
-			Size:      dynamicSize, // 使用动态Size
-			CursorPos: cursorPos,   // 使用动态光标位置
-			Templates: &promptui.SelectTemplates{
-				Active:   "▶ {{ . | cyan }}",
-				Inactive: "  {{ . }}",
-				// 设置为空字符串，避免显示选中的项目
-				Selected: "",
-			},
-			HideSelected: true, // 隐藏选中项的显示
-		}
-
-		idx, result, err := prompt.Run()
-		if err != nil {
-			// promptui 默认支持 Ctrl+C 退出
-			if strings.Contains(err.Error(), "interrupt") {
-				return nil, errors.New("user cancelled selection")
-			}
-			return nil, err
-		}
-
-		// 处理特殊选项
-		if strings.Contains(result, "Exit") {
-			return nil, nil
-		}
-
-		if result == "✓ Confirm Selection" {
-			// 返回选中的项目
-			var selected []string
-			for i, isSelected := range selectedItems {
-				if isSelected {
-					selected = append(selected, items[i])
-				}
-			}
-			return selected, nil
-		}
-
-		if result == "---" {
-			continue // 分隔符，忽略
-		}
-
-		// 切换选择状态（需要调整索引，因为顶部有退出、确认和分隔符三个项）
-		adjustedIdx := idx - 3
-		if adjustedIdx >= 0 && adjustedIdx < len(items) {
-			selectedItems[adjustedIdx] = !selectedItems[adjustedIdx]
-			// 保持光标在当前选择的选项位置
-			cursorPos = idx
+	var out []string
+	for _, it := range items {
+		if fm.selected[it] {
+			out = append(out, it)
 		}
 	}
+	return out, nil
 }
- 
+
 // ServerToolSelection 表示服务器和工具的选择结果
 type ServerToolSelection struct {
 	ServerName    string
@@ -147,7 +500,7 @@ func InteractiveSelectServersAndTools(
 		preSelectedServers[serverName] = struct{}{}
 	}
 
-	selectedServerNames, err := InteractiveSelect(serverNames, preSelectedServers)
+	selectedServerNames, err := interactiveSelect(serverNames, preSelectedServers, mcpSelectOptions{Title: "Select MCP Servers"})
 	if err != nil {
 		return nil, err
 	}
@@ -174,17 +527,19 @@ func InteractiveSelectServersAndTools(
 			continue
 		}
 
-		// 构建工具显示项（名称 - 描述），限制描述长度
 		var toolDisplayItems []string
-		toolMap := make(map[string]string) // display -> toolName
+		toolMap := make(map[string]string)
+		details := make(map[string]string)
 		for _, tool := range tools {
-			description := tool.Description
-			if len(description) > 80 {
-				description = description[:77] + "..."
-			}
-			display := fmt.Sprintf("%s - %s", tool.Name, description)
+			display := tool.Name
 			toolDisplayItems = append(toolDisplayItems, display)
 			toolMap[display] = tool.Name
+
+			full := strings.TrimSpace(tool.Description)
+			if full == "" {
+				full = "No description"
+			}
+			details[display] = full
 		}
 
 		// 预选工具：如果有历史记录则按历史，否则默认全选
@@ -206,7 +561,7 @@ func InteractiveSelectServersAndTools(
 			}
 		}
 
-		selectedToolDisplays, err := InteractiveSelect(toolDisplayItems, preSelectedToolDisplays)
+		selectedToolDisplays, err := interactiveSelect(toolDisplayItems, preSelectedToolDisplays, mcpSelectOptions{Title: fmt.Sprintf("Select MCP Tools (%s)", serverName), Compact: true, Details: details, PreviewLines: 6})
 		if err != nil {
 			return nil, fmt.Errorf("error selecting tools for server '%s': %v", serverName, err)
 		}
