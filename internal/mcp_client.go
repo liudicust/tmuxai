@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,9 +70,32 @@ func NewMcpClient(servers []config.McpServer) *McpClient {
 		})
 
 		// 初始化客户端
-		_, err = mcpClient.Initialize(context.Background(), mcp.InitializeRequest{})
-		if err != nil {
-			logger.Error("Failed to initialize MCP client for server %s: %v", server.Name, err)
+		initBase := mcp.InitializeRequest{
+			Params: mcp.InitializeParams{
+				ClientInfo: mcp.Implementation{
+					Name:    "tmuxai",
+					Version: Version,
+				},
+				Capabilities: mcp.ClientCapabilities{},
+			},
+		}
+
+		var initErr error
+		for _, pv := range mcp.ValidProtocolVersions {
+			initReq := initBase
+			initReq.Params.ProtocolVersion = pv
+			_, initErr = mcpClient.Initialize(context.Background(), initReq)
+			if initErr == nil {
+				break
+			}
+			if !(strings.Contains(initErr.Error(), "unsupported proto") ||
+				strings.Contains(initErr.Error(), "Unsupported protocol version") ||
+				strings.Contains(initErr.Error(), "unsupported protocol version")) {
+				break
+			}
+		}
+		if initErr != nil {
+			logger.Error("Failed to initialize MCP client for server %s: %v", server.Name, initErr)
 			continue
 		}
 
