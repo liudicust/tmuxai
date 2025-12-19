@@ -88,13 +88,13 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 			return nil, fmt.Errorf("system.TmuxCreateSession failed: %w", err)
 		}
 
-		// Create a right pane for chat (current pane becomes exec pane)
+		// Create a bottom pane for chat (current pane becomes exec pane)
 		chatPaneId, err := system.TmuxCreateNewPane(paneId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create chat pane: %w", err)
 		}
 
-		// Switch to the right pane (chat pane) and start tmuxai there
+		// Switch to the bottom pane (chat pane) and start tmuxai there
 		system.TmuxSelectPane(chatPaneId)
 		args := strings.Join(os.Args[1:], " ")
 		system.TmuxSendCommandToPane(chatPaneId, "cnp-ai "+args, true)

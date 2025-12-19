@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/alvinunreal/tmuxai/config"
+	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +32,14 @@ type checkFocusMsg struct{ active bool }
 var lastFocusActive bool
 var lastFocusCheck time.Time
 var focusChecking int32
+var windowSizeMsgLogCount int32
+
+func tuiDebug(mgr *Manager, format string, v ...interface{}) {
+	if mgr == nil || mgr.Config == nil || !mgr.Config.Debug {
+		return
+	}
+	logger.Debug(format, v...)
+}
 
 func readActive(mgr *Manager) bool {
 	if time.Since(lastFocusCheck) < 300*time.Millisecond || atomic.LoadInt32(&focusChecking) == 1 {
@@ -63,22 +72,25 @@ func focusTick(mgr *Manager) tea.Cmd {
 }
 
 type tuiModel struct {
-	textInput   textinput.Model
-	err         error
-	manager     *Manager
-	submitting  bool
-	quitting    bool
-	initMessage string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	history     []string
-	histIndex   int
-	histPath    string
-	width       int
-	height      int
+	textInput       textinput.Model
+	err             error
+	manager         *Manager
+	submitting      bool
+	quitting        bool
+	initMessage     string
+	ctx             context.Context
+	cancel          context.CancelFunc
+	history         []string
+	histIndex       int
+	histPath        string
+	width           int
+	height          int
+	startedAt       time.Time
+	expectedWidth   int
+	expectedHeight  int
 }
 
-func initialModel(manager *Manager, initMessage string, width, height int) tuiModel {
+func initialModel(manager *Manager, initMessage string, width, height int, startedAt time.Time, expectedWidth, expectedHeight int) tuiModel {
 	ti := textinput.New()
 	ti.Placeholder = "Type your message or \\command..."
 	ti.Prompt = manager.GetPrompt()
@@ -97,6 +109,8 @@ func initialModel(manager *Manager, initMessage string, width, height int) tuiMo
 	} else {
 		ti.Width = 0
 	}
+	promptW := lipgloss.Width(ti.Prompt)
+	tuiDebug(manager, "tui.initialModel width=%d height=%d promptW=%d textInput.Width=%d", width, height, promptW, ti.Width)
 
 	if initMessage != "" {
 		ti.SetValue(initMessage)
@@ -105,16 +119,26 @@ func initialModel(manager *Manager, initMessage string, width, height int) tuiMo
 	hp := defaultHistoryPath()
 	entries := loadHistory(hp)
 
+	if expectedWidth <= 0 {
+		expectedWidth = width
+	}
+	if expectedHeight <= 0 {
+		expectedHeight = height
+	}
+
 	return tuiModel{
-		textInput:   ti,
-		err:         nil,
-		manager:     manager,
-		initMessage: initMessage,
-		history:     entries,
-		histIndex:   -1,
-		histPath:    hp,
-		width:       width,
-		height:      height,
+		textInput:       ti,
+		err:             nil,
+		manager:         manager,
+		initMessage:     initMessage,
+		history:         entries,
+		histIndex:       -1,
+		histPath:        hp,
+		width:           width,
+		height:          height,
+		startedAt:       startedAt,
+		expectedWidth:   expectedWidth,
+		expectedHeight:  expectedHeight,
 	}
 }
 
@@ -218,6 +242,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textInput.Blur()
 		return m, nil
 	case tea.WindowSizeMsg:
+		age := time.Since(m.startedAt)
+		if m.expectedWidth > 0 && age < 2*time.Second && msg.Width > 0 && msg.Width < m.expectedWidth-1 {
+			if atomic.AddInt32(&windowSizeMsgLogCount, 1) <= 10 {
+				tuiDebug(m.manager, "tui.WindowSizeMsg ignored msg=%dx%d expected=%dx%d age=%s", msg.Width, msg.Height, m.expectedWidth, m.expectedHeight, age)
+			}
+			return m, nil
+		}
+
 		m.width = msg.Width
 		m.height = msg.Height
 		available := m.width - 4
@@ -227,6 +259,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textInput.Width = available - lipgloss.Width(m.textInput.Prompt)
 		if m.textInput.Width < 1 {
 			m.textInput.Width = 1
+		}
+		if atomic.AddInt32(&windowSizeMsgLogCount, 1) <= 10 {
+			promptW := lipgloss.Width(m.textInput.Prompt)
+			tuiDebug(m.manager, "tui.WindowSizeMsg applied msg=%dx%d promptW=%d textInput.Width=%d", msg.Width, msg.Height, promptW, m.textInput.Width)
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -381,44 +417,95 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 
 	firstRun := true
 	for {
-		// Get current terminal size
-		w, h, err := term.GetSize(int(os.Stdout.Fd()))
+		wOut, hOut, errOut := term.GetSize(int(os.Stdout.Fd()))
+		wErr, hErr, errErr := term.GetSize(int(os.Stderr.Fd()))
+		wIn, hIn, errIn := term.GetSize(int(os.Stdin.Fd()))
+
+		w, h, err := wOut, hOut, errOut
 		if err != nil {
-			w, h, err = term.GetSize(int(os.Stderr.Fd()))
+			w, h, err = wErr, hErr, errErr
 		}
 		if err != nil {
-			w, h, err = term.GetSize(int(os.Stdin.Fd()))
+			w, h, err = wIn, hIn, errIn
 		}
 		if err != nil || w == 0 {
-			// Default fallback if we can't get size
 			w = 80
 			h = 24
 		}
+		if firstRun {
+			tuiDebug(c.manager, "tui.term.GetSize stdout=%dx%d err=%v stderr=%dx%d err=%v stdin=%dx%d err=%v chosen=%dx%d", wOut, hOut, errOut, wErr, hErr, errErr, wIn, hIn, errIn, w, h)
+		}
 
-		// Smart wait for resize on first run if width is suspiciously small
-		if firstRun && w < 60 {
-			tmW := getTmuxWindowWidth()
-			// If tmux window is significantly larger, we might be in a temporary split/resize
-			if tmW > 0 && w < tmW {
-				// Wait up to 1 second for resize
-				for i := 0; i < 10; i++ {
-					time.Sleep(100 * time.Millisecond)
-					newW, newH, err := term.GetSize(int(os.Stdout.Fd()))
-					if err == nil && newW > w {
-						w = newW
-						h = newH
-						// If we grew significantly or reached target, stop waiting
-						if newW >= tmW-2 {
-							break
-						}
+		target := ""
+		if c.manager != nil {
+			target = c.manager.PaneId
+		}
+		paneW, paneH := getTmuxPaneSize(target)
+		winW, winH := 0, 0
+		if firstRun {
+			winW, winH = getTmuxWindowSize(target)
+			tuiDebug(c.manager, "tui.firstRun sizes term=%dx%d tmuxPane=%dx%d tmuxWin=%dx%d", w, h, paneW, paneH, winW, winH)
+
+			bestPaneW, bestPaneH := paneW, paneH
+			bestWinW, bestWinH := winW, winH
+			if bestWinW > 0 && bestWinW <= 100 {
+				deadline := time.Now().Add(1500 * time.Millisecond)
+				for time.Now().Before(deadline) {
+					pw, ph := getTmuxPaneSize(target)
+					ww, wh := getTmuxWindowSize(target)
+					if pw > bestPaneW {
+						bestPaneW, bestPaneH = pw, ph
 					}
+					if ww > bestWinW {
+						bestWinW, bestWinH = ww, wh
+					}
+					if bestWinW > 100 {
+						break
+					}
+					tuiDebug(c.manager, "tui.firstRun wait tmuxPane=%dx%d tmuxWin=%dx%d", pw, ph, ww, wh)
+					time.Sleep(50 * time.Millisecond)
+				}
+				paneW, paneH = bestPaneW, bestPaneH
+				winW, winH = bestWinW, bestWinH
+				tuiDebug(c.manager, "tui.firstRun settled tmuxPane=%dx%d tmuxWin=%dx%d", paneW, paneH, winW, winH)
+			}
+		}
+		if paneW > 0 {
+			if w != paneW || (paneH > 0 && h != paneH) {
+				tuiDebug(c.manager, "tui.size override term=%dx%d -> tmuxPane=%dx%d", w, h, paneW, paneH)
+			}
+			w = paneW
+			if paneH > 0 {
+				h = paneH
+			}
+
+			if firstRun {
+				deadline := time.Now().Add(1500 * time.Millisecond)
+				for time.Now().Before(deadline) {
+					tw, th, err := term.GetSize(int(os.Stdout.Fd()))
+					if err == nil && tw > 0 && absInt(tw-paneW) <= 1 {
+						w = tw
+						h = th
+						tuiDebug(c.manager, "tui.firstRun term synced term=%dx%d tmuxPane=%dx%d", tw, th, paneW, paneH)
+						break
+					}
+					time.Sleep(50 * time.Millisecond)
 				}
 			}
 		}
+
+		expectedW, expectedH := paneW, paneH
+		if expectedW <= 0 {
+			expectedW = w
+		}
+		if expectedH <= 0 {
+			expectedH = h
+		}
+		startedAt := time.Now()
+
 		firstRun = false
 
-		// Initialize the model on the normal screen to preserve existing outputs
-		p := tea.NewProgram(initialModel(c.manager, "", w, h))
+		p := tea.NewProgram(initialModel(c.manager, "", w, h, startedAt, expectedW, expectedH))
 
 		// Run the program
 		finalModel, err := p.Run()
@@ -462,12 +549,55 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 	}
 }
 
-func getTmuxWindowWidth() int {
-	cmd := exec.Command("tmux", "display-message", "-p", "#{window_width}")
+func getTmuxPaneSize(target string) (int, int) {
+	args := []string{"display-message", "-p"}
+	if target != "" {
+		args = append(args, "-t", target)
+	}
+	args = append(args, "#{pane_width} #{pane_height}")
+	cmd := exec.Command("tmux", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		return 0
+		return 0, 0
 	}
-	w, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-	return w
+	parts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	w, errW := strconv.Atoi(parts[0])
+	h, errH := strconv.Atoi(parts[1])
+	if errW != nil || errH != nil {
+		return 0, 0
+	}
+	return w, h
+}
+
+func getTmuxWindowSize(target string) (int, int) {
+	args := []string{"display-message", "-p"}
+	if target != "" {
+		args = append(args, "-t", target)
+	}
+	args = append(args, "#{window_width} #{window_height}")
+	cmd := exec.Command("tmux", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, 0
+	}
+	parts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	w, errW := strconv.Atoi(parts[0])
+	h, errH := strconv.Atoi(parts[1])
+	if errW != nil || errH != nil {
+		return 0, 0
+	}
+	return w, h
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }

@@ -11,9 +11,10 @@ import (
 	"github.com/alvinunreal/tmuxai/logger"
 )
 
-// TmuxCreateNewPane creates a new horizontal split pane in the specified window and returns its ID
+// TmuxCreateNewPane creates a new vertical split pane (top/bottom) in the specified window and returns its ID
+// The new pane is created as the bottom pane, leaving the current pane on top.
 func TmuxCreateNewPane(target string) (string, error) {
-	cmd := exec.Command("tmux", "split-window", "-d", "-h", "-t", target, "-P", "-F", "#{pane_id}")
+	cmd := exec.Command("tmux", "split-window", "-d", "-v", "-p", "30", "-t", target, "-P", "-F", "#{pane_id}")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
