@@ -72,22 +72,22 @@ func focusTick(mgr *Manager) tea.Cmd {
 }
 
 type tuiModel struct {
-	textInput       textinput.Model
-	err             error
-	manager         *Manager
-	submitting      bool
-	quitting        bool
-	initMessage     string
-	ctx             context.Context
-	cancel          context.CancelFunc
-	history         []string
-	histIndex       int
-	histPath        string
-	width           int
-	height          int
-	startedAt       time.Time
-	expectedWidth   int
-	expectedHeight  int
+	textInput      textinput.Model
+	err            error
+	manager        *Manager
+	submitting     bool
+	quitting       bool
+	initMessage    string
+	ctx            context.Context
+	cancel         context.CancelFunc
+	history        []string
+	histIndex      int
+	histPath       string
+	width          int
+	height         int
+	startedAt      time.Time
+	expectedWidth  int
+	expectedHeight int
 }
 
 func initialModel(manager *Manager, initMessage string, width, height int, startedAt time.Time, expectedWidth, expectedHeight int) tuiModel {
@@ -127,18 +127,18 @@ func initialModel(manager *Manager, initMessage string, width, height int, start
 	}
 
 	return tuiModel{
-		textInput:       ti,
-		err:             nil,
-		manager:         manager,
-		initMessage:     initMessage,
-		history:         entries,
-		histIndex:       -1,
-		histPath:        hp,
-		width:           width,
-		height:          height,
-		startedAt:       startedAt,
-		expectedWidth:   expectedWidth,
-		expectedHeight:  expectedHeight,
+		textInput:      ti,
+		err:            nil,
+		manager:        manager,
+		initMessage:    initMessage,
+		history:        entries,
+		histIndex:      -1,
+		histPath:       hp,
+		width:          width,
+		height:         height,
+		startedAt:      startedAt,
+		expectedWidth:  expectedWidth,
+		expectedHeight: expectedHeight,
 	}
 }
 
@@ -401,6 +401,15 @@ func clearInputBox(m tuiModel) {
 	//fmt.Print("\r\033[K\n")
 }
 
+func positionCursorForInputBox(view string) {
+	bh := lipgloss.Height(view)
+	fmt.Print("\r")
+	fmt.Print("\x1b[999B")
+	if bh > 1 {
+		fmt.Printf("\x1b[%dA", bh-1)
+	}
+}
+
 // StartTUI starts the Bubble Tea interface
 func (c *CLIInterface) StartTUI(initMessage string) error {
 	//c.printWelcomeMessage()
@@ -505,7 +514,9 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 
 		firstRun = false
 
-		p := tea.NewProgram(initialModel(c.manager, "", w, h, startedAt, expectedW, expectedH))
+		m0 := initialModel(c.manager, "", w, h, startedAt, expectedW, expectedH)
+		positionCursorForInputBox(m0.View())
+		p := tea.NewProgram(m0)
 
 		// Run the program
 		finalModel, err := p.Run()
@@ -519,7 +530,8 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 		}
 
 		if m.submitting {
-			clearInputBox(m)
+			fmt.Print(disableFocusReport)
+			fmt.Print("\033[2J\033[1;1H")
 			input := m.textInput.Value()
 
 			// Check for exit/quit
