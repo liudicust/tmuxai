@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -33,6 +34,8 @@ var lastFocusActive bool
 var lastFocusCheck time.Time
 var focusChecking int32
 var windowSizeMsgLogCount int32
+var cursorMoveLogCount int32
+var clearLinesLogCount int32
 
 func tuiDebug(mgr *Manager, format string, v ...interface{}) {
 	if mgr == nil || mgr.Config == nil || !mgr.Config.Debug {
@@ -72,25 +75,26 @@ func focusTick(mgr *Manager) tea.Cmd {
 }
 
 type tuiModel struct {
-	textInput      textinput.Model
-	err            error
-	manager        *Manager
-	submitting     bool
-	quitting       bool
-	initMessage    string
-	ctx            context.Context
-	cancel         context.CancelFunc
-	history        []string
-	histIndex      int
-	histPath       string
-	width          int
-	height         int
-	startedAt      time.Time
-	expectedWidth  int
-	expectedHeight int
-}
+		textInput      textinput.Model
+		err            error
+		manager        *Manager
+		submitting     bool
+		quitting       bool
+		initMessage    string
+		ctx            context.Context
+		cancel         context.CancelFunc
+		history        []string
+		histIndex      int
+		histPath       string
+		width          int
+		height         int
+		startedAt      time.Time
+		expectedWidth  int
+		expectedHeight int
+		modelOutput    string
+	}
 
-func initialModel(manager *Manager, initMessage string, width, height int, startedAt time.Time, expectedWidth, expectedHeight int) tuiModel {
+func initialModel(manager *Manager, initMessage string, width, height int, startedAt time.Time, expectedWidth, expectedHeight int, modelOutput string) tuiModel {
 	ti := textinput.New()
 	ti.Placeholder = "Type your message or \\command..."
 	ti.Prompt = manager.GetPrompt()
@@ -139,6 +143,7 @@ func initialModel(manager *Manager, initMessage string, width, height int, start
 		startedAt:      startedAt,
 		expectedWidth:  expectedWidth,
 		expectedHeight: expectedHeight,
+		modelOutput:    modelOutput,
 	}
 }
 
@@ -244,14 +249,17 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		age := time.Since(m.startedAt)
 		if m.expectedWidth > 0 && age < 2*time.Second && msg.Width > 0 && msg.Width < m.expectedWidth-1 {
-			if atomic.AddInt32(&windowSizeMsgLogCount, 1) <= 10 {
-				tuiDebug(m.manager, "tui.WindowSizeMsg ignored msg=%dx%d expected=%dx%d age=%s", msg.Width, msg.Height, m.expectedWidth, m.expectedHeight, age)
+			if atomic.AddInt32(&windowSizeMsgLogCount, 1) <= 50 {
+				tuiDebug(m.manager, "tui.WindowSizeMsg ignored msg=%dx%d cur=%dx%d expected=%dx%d age=%s", msg.Width, msg.Height, m.width, m.height, m.expectedWidth, m.expectedHeight, age)
 			}
 			return m, nil
 		}
 
+		oldModelW, oldModelH := m.width, m.height
+
 		m.width = msg.Width
 		m.height = msg.Height
+
 		available := m.width - 4
 		if available < 1 {
 			available = 1
@@ -260,9 +268,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.textInput.Width < 1 {
 			m.textInput.Width = 1
 		}
-		if atomic.AddInt32(&windowSizeMsgLogCount, 1) <= 10 {
+
+		if atomic.AddInt32(&windowSizeMsgLogCount, 1) <= 50 {
+			view := m.View()
+			viewW, viewH := lipgloss.Width(view), lipgloss.Height(view)
 			promptW := lipgloss.Width(m.textInput.Prompt)
-			tuiDebug(m.manager, "tui.WindowSizeMsg applied msg=%dx%d promptW=%d textInput.Width=%d", msg.Width, msg.Height, promptW, m.textInput.Width)
+			tuiDebug(m.manager, "tui.WindowSizeMsg applied msg=%dx%d model %dx%d->%dx%d view=%dx%d promptW=%d available=%d textInput.Width=%d expected=%dx%d age=%s", msg.Width, msg.Height, oldModelW, oldModelH, m.width, m.height, viewW, viewH, promptW, available, m.textInput.Width, m.expectedWidth, m.expectedHeight, age)
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -357,6 +368,23 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func inputBoxHeight(m tuiModel) int {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	boxW := w - 2
+	if boxW < 1 {
+		boxW = 1
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(0, 1).
+		Margin(0).
+		Width(boxW)
+	return lipgloss.Height(box.Render(m.textInput.View()))
+}
+
 func (m tuiModel) View() string {
 	borderColor := lipgloss.Color("62")
 	if !m.textInput.Focused() {
@@ -366,47 +394,151 @@ func (m tuiModel) View() string {
 	if w <= 0 {
 		w = 80
 	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	boxW := w - 2
+	if boxW < 1 {
+		boxW = 1
+	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Padding(0, 1).
 		Margin(0).
-		Width(w - 2)
-	return box.Render(m.textInput.View())
+		Width(boxW)
+	boxView := box.Render(m.textInput.View())
+	boxH := lipgloss.Height(boxView)
+	topH := h - boxH
+	if topH < 0 {
+		topH = 0
+	}
+	top := renderModelOutput(m.modelOutput, w, topH)
+	if top == "" {
+		return lipgloss.Place(w, h, lipgloss.Left, lipgloss.Bottom, boxView)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, top, boxView)
 }
 
-func clearInputBox(m tuiModel) {
-	borderColor := lipgloss.Color("62")
-	if !m.textInput.Focused() {
-		borderColor = lipgloss.Color("240")
+func renderModelOutput(content string, w, h int) string {
+	if h <= 0 {
+		return ""
 	}
-	w := m.width
-	if w <= 0 {
-		w = 80
+	lineStyle := lipgloss.NewStyle().Width(w).MaxWidth(w)
+	lines := []string{}
+	trimmed := strings.TrimSpace(content)
+	if trimmed != "" {
+		lines = strings.Split(trimmed, "\n")
 	}
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(0, 1).
-		Margin(0).
-		Width(w - 2)
-	content := box.Render(m.textInput.View())
-	bh := lipgloss.Height(content)
-	for i := 0; i < bh; i++ {
-		fmt.Print("\r\033[K")
-		if i < bh-1 {
-			fmt.Print("\x1b[1A")
+	if len(lines) > h {
+		lines = lines[len(lines)-h:]
+	}
+	out := make([]string, 0, h)
+	for _, line := range lines {
+		out = append(out, lineStyle.Render(line))
+	}
+	for len(out) < h {
+		out = append(out, lineStyle.Render(""))
+	}
+	return strings.Join(out, "\n")
+}
+
+func buildModelOutput(mgr *Manager) string {
+	if mgr == nil {
+		return ""
+	}
+	var parts []string
+	for _, msg := range mgr.Messages {
+		if msg.FromUser {
+			continue
 		}
+		visible := stripModelOutputTags(msg.Content)
+		visible = strings.TrimSpace(visible)
+		if visible == "" {
+			continue
+		}
+		if len(parts) > 0 {
+			parts = append(parts, "")
+		}
+		parts = append(parts, formatAIForTUI(system.Cosmetics(visible)))
 	}
-	//fmt.Print("\r\033[K\n")
+	return strings.Join(parts, "\n")
 }
 
-func positionCursorForInputBox(view string) {
+func formatAIForTUI(msg string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("86")).
+		Bold(true).
+		Render("👾")
+	contentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func stripModelOutputTags(s string) string {
+	tags := []string{
+		"TmuxSendKeys",
+		"ExecCommand",
+		"PasteMultilineContent",
+		"RequestAccomplished",
+		"ExecPaneSeemsBusy",
+		"WaitingForUserResponse",
+		"NoComment",
+		"McpToolCall",
+	}
+	out := s
+	for _, name := range tags {
+		out = regexp.MustCompile(fmt.Sprintf("(?s)```(?:xml)?\\s*<%s>.*?</%s>\\s*```", name, name)).ReplaceAllString(out, "")
+		out = regexp.MustCompile(fmt.Sprintf("`<%s>.*?</%s>`", name, name)).ReplaceAllString(out, "")
+		out = regexp.MustCompile(fmt.Sprintf("(?s)<%s>.*?</%s>", name, name)).ReplaceAllString(out, "")
+		out = regexp.MustCompile(fmt.Sprintf("(?s)(<%s>\\s*</%s>|<%s>\\s*|```<%s>```|<%s/>)", name, name, name, name, name)).ReplaceAllString(out, "")
+		out = regexp.MustCompile(fmt.Sprintf("(?m)^\\s*(<%s>\\s*|```<%s>```)?\\s*$", name, name)).ReplaceAllString(out, "")
+	}
+	out = strings.TrimSpace(out)
+	out = collapseBlankLines(out)
+	return strings.TrimSpace(out)
+}
+
+func positionCursorForInputBox(mgr *Manager, view string, where string) {
 	bh := lipgloss.Height(view)
+	bw := lipgloss.Width(view)
+	if atomic.AddInt32(&cursorMoveLogCount, 1) <= 50 {
+		tuiDebug(mgr, "tui.cursor.position where=%s view=%dx%d", where, bw, bh)
+	}
 	fmt.Print("\r")
 	fmt.Print("\x1b[999B")
 	if bh > 1 {
 		fmt.Printf("\x1b[%dA", bh-1)
+	}
+}
+
+func clearInputBoxLines(mgr *Manager, lines int, where string) {
+	if lines <= 0 {
+		return
+	}
+	if atomic.AddInt32(&clearLinesLogCount, 1) <= 50 {
+		tuiDebug(mgr, "tui.cursor.clear where=%s lines=%d", where, lines)
+	}
+	fmt.Print("\r")
+	for i := 0; i < lines; i++ {
+		fmt.Print("\x1b[2K")
+		if i < lines-1 {
+			fmt.Print("\x1b[1A\r")
+		}
 	}
 }
 
@@ -514,8 +646,8 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 
 		firstRun = false
 
-		m0 := initialModel(c.manager, "", w, h, startedAt, expectedW, expectedH)
-		positionCursorForInputBox(m0.View())
+		modelOutput := buildModelOutput(c.manager)
+		m0 := initialModel(c.manager, "", w, h, startedAt, expectedW, expectedH, modelOutput)
 		p := tea.NewProgram(m0)
 
 		// Run the program
@@ -531,12 +663,26 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 
 		if m.submitting {
 			fmt.Print(disableFocusReport)
+
+			boxH := inputBoxHeight(m)
+			topRow := m.height - boxH + 1
+			row := topRow + 1
+			if row < 1 {
+				row = 1
+			}
+			if row > m.height {
+				row = m.height
+			}
+			atomic.StoreInt32(&tuiSpinnerRow, int32(row))
+			atomic.StoreInt32(&tuiSpinnerEnabled, 1)
+
 			fmt.Print("\033[2J\033[1;1H")
 			input := m.textInput.Value()
 
 			// Check for exit/quit
 			trimmed := strings.TrimSpace(input)
 			if trimmed == "exit" || trimmed == "quit" {
+				atomic.StoreInt32(&tuiSpinnerEnabled, 0)
 				return nil
 			}
 
@@ -554,6 +700,7 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 
 				c.processInput(input)
 			}
+			atomic.StoreInt32(&tuiSpinnerEnabled, 0)
 		} else {
 			fmt.Print(disableFocusReport)
 			return nil

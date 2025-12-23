@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/alvinunreal/tmuxai/logger"
@@ -10,23 +11,41 @@ import (
 	"github.com/fatih/color"
 )
 
+var tuiSpinnerEnabled int32
+var tuiSpinnerRow int32
+
+func writeSpinnerLine(s string) {
+	if atomic.LoadInt32(&tuiSpinnerEnabled) == 1 {
+		row := atomic.LoadInt32(&tuiSpinnerRow)
+		if row < 1 {
+			row = 1
+		}
+		fmt.Print("\0337")
+		fmt.Printf("\033[%d;1H", row)
+		fmt.Print("\033[2K")
+		fmt.Print(s)
+		fmt.Print("\0338")
+		return
+	}
+	fmt.Print("\r\033[K")
+	fmt.Print(s)
+}
+
 func startInlineSpinner(text string) func() {
 	stop := make(chan struct{})
 	done := make(chan struct{})
-	fmt.Print("\r\033[K")
 	frames := []string{"-", "\\", "|", "/"}
 	go func() {
 		i := 0
 		for {
 			select {
 			case <-stop:
-				fmt.Print("\r\033[K")
+				writeSpinnerLine("")
 				close(done)
 				return
 			default:
 			}
-			fmt.Print("\r\033[K")
-			fmt.Printf("%s %s", frames[i%len(frames)], text)
+			writeSpinnerLine(fmt.Sprintf("%s %s", frames[i%len(frames)], text))
 			i++
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -34,7 +53,7 @@ func startInlineSpinner(text string) func() {
 	return func() {
 		close(stop)
 		<-done
-		fmt.Print("\r\033[K")
+		writeSpinnerLine("")
 	}
 }
 
