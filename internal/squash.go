@@ -8,7 +8,6 @@ import (
 
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
-	"github.com/briandowns/spinner"
 )
 
 // needSquash checks if the current context size is approaching the max limit
@@ -91,8 +90,8 @@ func (m *Manager) squashHistory() {
 
 // summarizeChatHistory asks the AI to summarize the chat history
 func (m *Manager) summarizeChatHistory(messages []ChatMessage) (string, error) {
-	s := spinner.New(spinner.CharSets[26], 100*time.Millisecond)
-	s.Start()
+	stopSpinner := startInlineSpinner("Squashing history...")
+	defer stopSpinner()
 
 	// Convert messages to a readable format for summarization
 	var chatLog strings.Builder
@@ -133,6 +132,5 @@ func (m *Manager) summarizeChatHistory(messages []ChatMessage) (string, error) {
 		debugChatMessages(summarizationMessage, summary)
 	}
 
-	s.Stop()
 	return fmt.Sprintf("CHAT HISTORY SUMMARY:\n%s", summary), nil
 }

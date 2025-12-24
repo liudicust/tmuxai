@@ -9,24 +9,38 @@ import (
 	"strings"
 
 	"github.com/alvinunreal/tmuxai/logger"
+	"golang.org/x/term"
 )
 
 // TmuxCreateNewPane creates a new vertical split pane (top/bottom) in the specified window and returns its ID
 // The new pane is created as the bottom pane, leaving the current pane on top.
 func TmuxCreateNewPane(target string) (string, error) {
-	cmd := exec.Command("tmux", "split-window", "-d", "-v", "-p", "30", "-t", target, "-P", "-F", "#{pane_id}")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		logger.Error("Failed to create tmux pane: %v, stderr: %s", err, stderr.String())
-		return "", err
+	tryCreate := func(args ...string) (string, string, error) {
+		cmd := exec.Command("tmux", args...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		return strings.TrimSpace(stdout.String()), stderr.String(), err
 	}
 
-	paneId := strings.TrimSpace(stdout.String())
-	return paneId, nil
+	paneId, stderrStr, err := tryCreate("split-window", "-d", "-v", "-p", "30", "-t", target, "-P", "-F", "#{pane_id}")
+	if err == nil {
+		return paneId, nil
+	}
+
+	if strings.Contains(stderrStr, "size missing") {
+		logger.Info("tmux split-window percent failed (size missing), retrying without -p")
+		paneId2, stderrStr2, err2 := tryCreate("split-window", "-d", "-v", "-t", target, "-P", "-F", "#{pane_id}")
+		if err2 == nil {
+			return paneId2, nil
+		}
+		logger.Error("Failed to create tmux pane after retry: %v, stderr: %s", err2, stderrStr2)
+		return "", err2
+	}
+
+	logger.Error("Failed to create tmux pane: %v, stderr: %s", err, stderrStr)
+	return "", err
 }
 
 // TmuxPanesDetails gets details for all panes in a target window
@@ -146,7 +160,29 @@ func TmuxCurrentPaneId() (string, error) {
 
 // CreateTmuxSession creates a new tmux session and returns the new pane id
 func TmuxCreateSession() (string, error) {
-	cmd := exec.Command("tmux", "new-session", "-d", "-P", "-F", "#{pane_id}")
+	width, height := 120, 40
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		if w, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 && h > 0 {
+			width, height = w, h
+		}
+	} else if term.IsTerminal(int(os.Stderr.Fd())) {
+		if w, h, err := term.GetSize(int(os.Stderr.Fd())); err == nil && w > 0 && h > 0 {
+			width, height = w, h
+		}
+	}
+
+	cmd := exec.Command(
+		"tmux",
+		"new-session",
+		"-d",
+		"-x",
+		strconv.Itoa(width),
+		"-y",
+		strconv.Itoa(height),
+		"-P",
+		"-F",
+		"#{pane_id}",
+	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
