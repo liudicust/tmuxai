@@ -181,7 +181,7 @@ func TmuxCreateSession() (string, error) {
 		strconv.Itoa(height),
 		"-P",
 		"-F",
-		"#{pane_id}",
+		"#S",
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -191,12 +191,61 @@ func TmuxCreateSession() (string, error) {
 		return "", err
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	sessionName := strings.TrimSpace(stdout.String())
+	if sessionName == "" {
+		return "", fmt.Errorf("empty session name returned")
+	}
+
+	windowTarget := sessionName + ":0"
+	listCmd := exec.Command("tmux", "list-panes", "-t", windowTarget, "-F", "#{pane_id}")
+	var listOut, listErr bytes.Buffer
+	listCmd.Stdout = &listOut
+	listCmd.Stderr = &listErr
+	if err := listCmd.Run(); err == nil {
+		if paneId := strings.TrimSpace(listOut.String()); paneId != "" {
+			if idx := strings.Index(paneId, "\n"); idx != -1 {
+				paneId = paneId[:idx]
+			}
+			return paneId, nil
+		}
+	}
+
+	fallbackCmd := exec.Command("tmux", "list-panes", "-t", windowTarget, "-F", "#S:#I.#P")
+	fallbackCmd.Stdout = &listOut
+	fallbackCmd.Stderr = &listErr
+	if err := fallbackCmd.Run(); err != nil {
+		logger.Error("Failed to resolve tmux pane target: %v, stderr: %s", err, listErr.String())
+		return "", err
+	}
+
+	paneTarget := strings.TrimSpace(listOut.String())
+	if paneTarget == "" {
+		return "", fmt.Errorf("empty pane target returned")
+	}
+	if idx := strings.Index(paneTarget, "\n"); idx != -1 {
+		paneTarget = paneTarget[:idx]
+	}
+	return paneTarget, nil
 }
 
 // AttachToTmuxSession attaches to an existing tmux session
-func TmuxAttachSession(paneId string) error {
-	cmd := exec.Command("tmux", "attach-session", "-t", paneId)
+func TmuxAttachSession(target string) error {
+	sessionTarget := ""
+	resolveCmd := exec.Command("tmux", "list-panes", "-t", target, "-F", "#S")
+	var out, stderr bytes.Buffer
+	resolveCmd.Stdout = &out
+	resolveCmd.Stderr = &stderr
+	if err := resolveCmd.Run(); err == nil {
+		sessionTarget = strings.TrimSpace(out.String())
+		if idx := strings.Index(sessionTarget, "\n"); idx != -1 {
+			sessionTarget = sessionTarget[:idx]
+		}
+	}
+	if sessionTarget == "" {
+		sessionTarget = target
+	}
+
+	cmd := exec.Command("tmux", "attach-session", "-t", sessionTarget)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
