@@ -28,6 +28,70 @@ info(){ echo "$*"; }
 
 command_exists(){ command -v "$1" >/dev/null 2>&1; }
 
+tmux_install_hint() {
+  if command_exists apt-get; then
+    info "  Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y tmux"
+  elif command_exists dnf; then
+    info "  RHEL/Fedora: sudo dnf install -y tmux"
+  elif command_exists yum; then
+    info "  RHEL/CentOS: sudo yum install -y tmux"
+  elif command_exists pacman; then
+    info "  Arch: sudo pacman -Sy --noconfirm tmux"
+  elif command_exists zypper; then
+    info "  SUSE: sudo zypper install -y tmux"
+  elif command_exists apk; then
+    info "  Alpine: sudo apk add tmux"
+  elif command_exists brew; then
+    info "  macOS (Homebrew): brew install tmux"
+  else
+    info "  Please install tmux using your system package manager."
+  fi
+}
+
+install_tmux() {
+  local sudo_cmd=""
+  if [ "${EUID:-0}" -ne 0 ]; then
+    command_exists sudo || return 1
+    sudo_cmd="sudo"
+  fi
+
+  if command_exists apt-get; then
+    $sudo_cmd apt-get update && $sudo_cmd apt-get install -y tmux
+  elif command_exists dnf; then
+    $sudo_cmd dnf install -y tmux
+  elif command_exists yum; then
+    $sudo_cmd yum install -y tmux
+  elif command_exists pacman; then
+    $sudo_cmd pacman -Sy --noconfirm tmux
+  elif command_exists zypper; then
+    $sudo_cmd zypper install -y tmux
+  elif command_exists apk; then
+    $sudo_cmd apk add tmux
+  elif command_exists brew; then
+    brew install tmux
+  else
+    return 1
+  fi
+}
+
+ensure_tmux_or_exit() {
+  if command_exists tmux; then
+    return 0
+  fi
+
+  info "tmux not found. Trying to install tmux..."
+  if install_tmux && command_exists tmux; then
+    info "tmux installed."
+    return 0
+  fi
+
+  info "[ERROR] Failed to install tmux automatically."
+  info "Please install tmux manually, then re-run this script."
+  info "How to install tmux:"
+  tmux_install_hint
+  exit 1
+}
+
 cleanup() {
   if [ -n "${TMP_DIR:-}" ] && [ -d "${TMP_DIR:-}" ]; then
     rm -rf "$TMP_DIR"
@@ -107,6 +171,8 @@ main() {
     darwin) os="darwin" ;;
     *) err "Unsupported OS: $(uname -s)" ;;
   esac
+
+  ensure_tmux_or_exit
 
   case "$arch_raw" in
     x86_64|amd64) arch="amd64" ;;
