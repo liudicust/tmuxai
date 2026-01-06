@@ -75,24 +75,24 @@ func focusTick(mgr *Manager) tea.Cmd {
 }
 
 type tuiModel struct {
-		textInput      textinput.Model
-		err            error
-		manager        *Manager
-		submitting     bool
-		quitting       bool
-		initMessage    string
-		ctx            context.Context
-		cancel         context.CancelFunc
-		history        []string
-		histIndex      int
-		histPath       string
-		width          int
-		height         int
-		startedAt      time.Time
-		expectedWidth  int
-		expectedHeight int
-		modelOutput    string
-	}
+	textInput      textinput.Model
+	err            error
+	manager        *Manager
+	submitting     bool
+	quitting       bool
+	initMessage    string
+	ctx            context.Context
+	cancel         context.CancelFunc
+	history        []string
+	histIndex      int
+	histPath       string
+	width          int
+	height         int
+	startedAt      time.Time
+	expectedWidth  int
+	expectedHeight int
+	modelOutput    string
+}
 
 func initialModel(manager *Manager, initMessage string, width, height int, startedAt time.Time, expectedWidth, expectedHeight int, modelOutput string) tuiModel {
 	ti := textinput.New()
@@ -448,22 +448,120 @@ func buildModelOutput(mgr *Manager) string {
 	if mgr == nil {
 		return ""
 	}
+
+	cmdLines := map[string]struct{}{}
+	for _, msg := range mgr.Messages {
+		if msg.FromUser {
+			continue
+		}
+		lang, code, ok := extractSingleCodeFence(msg.Content)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(lang)) {
+		case "", "sh", "bash", "zsh":
+			for _, line := range strings.Split(strings.TrimSpace(code), "\n") {
+				v := strings.TrimSpace(line)
+				if v == "" {
+					continue
+				}
+				cmdLines[v] = struct{}{}
+			}
+		}
+	}
+
 	var parts []string
 	for _, msg := range mgr.Messages {
 		if msg.FromUser {
 			continue
 		}
+
+		lang, code, ok := extractSingleCodeFence(msg.Content)
+		if ok {
+			switch strings.ToLower(strings.TrimSpace(lang)) {
+			case "", "sh", "bash", "zsh":
+				rendered := strings.TrimSpace(formatCommandForTUI(code))
+				if rendered != "" {
+					if len(parts) > 0 {
+						parts = append(parts, "")
+					}
+					parts = append(parts, rendered)
+				}
+				continue
+			}
+		}
+
 		visible := stripModelOutputTags(msg.Content)
 		visible = strings.TrimSpace(visible)
 		if visible == "" {
 			continue
 		}
+
+		if len(cmdLines) > 0 {
+			visible = removeExactLines(visible, cmdLines)
+			visible = strings.TrimSpace(collapseBlankLines(visible))
+		}
+		if visible == "" {
+			continue
+		}
+
 		if len(parts) > 0 {
 			parts = append(parts, "")
 		}
 		parts = append(parts, formatAIForTUI(system.Cosmetics(visible)))
 	}
 	return strings.Join(parts, "\n")
+}
+
+func extractSingleCodeFence(s string) (string, string, bool) {
+	n := strings.ReplaceAll(s, "\r\n", "\n")
+	n = strings.TrimSpace(n)
+	re := regexp.MustCompile("(?s)^```([a-zA-Z0-9_-]*)\\s*\\n(.*?)\\n```$")
+	m := re.FindStringSubmatch(n)
+	if m == nil {
+		return "", "", false
+	}
+	lang := strings.TrimSpace(m[1])
+	code := strings.TrimRight(m[2], "\n")
+	return lang, code, true
+}
+
+func removeExactLines(s string, drop map[string]struct{}) string {
+	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			if _, ok := drop[trimmed]; ok {
+				continue
+			}
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatCommandForTUI(cmd string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("205")).
+		Bold(true).
+		Render("🚀")
+	contentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("212"))
+
+	lines := strings.Split(strings.ReplaceAll(cmd, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
 }
 
 func formatAIForTUI(msg string) string {

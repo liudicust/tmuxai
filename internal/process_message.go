@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -214,27 +215,42 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 	// observe/prepared mode
 	for _, execCommand := range r.ExecCommand {
-		m.PrintCode(execCommand, "sh")
+		command := strings.TrimSpace(execCommand)
+		if command == "" {
+			continue
+		}
 
 		isSafe := false
-		command := execCommand
 		if m.GetExecConfirm() {
-			isSafe, command = m.confirmedToExec(execCommand, "Execute this command?", true)
+			m.PrintCode(command, "sh")
+			isSafe, command = m.confirmedToExec(command, "Execute this command?", true)
 		} else {
+			m.PrintCode(command, "sh")
 			isSafe = true
 		}
-		if isSafe {
-			//m.Println("Executing command: " + command)
-			if m.ExecPane.IsPrepared {
-				m.ExecWaitCapture(command)
-			} else {
-				system.TmuxSendCommandToPane(m.ExecPane.Id, command, true)
-				time.Sleep(1 * time.Second)
-			}
-		} else {
+		if !isSafe {
 			m.Status = ""
 			return false
 		}
+
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+
+		//m.Println("Executing command: " + command)
+		if m.ExecPane.IsPrepared {
+			m.ExecWaitCapture(command)
+		} else {
+			system.TmuxSendCommandToPane(m.ExecPane.Id, command, true)
+			time.Sleep(1 * time.Second)
+		}
+
+		m.Messages = append(m.Messages, ChatMessage{
+			Content:   fmt.Sprintf("```sh\n%s\n```", command),
+			FromUser:  false,
+			Timestamp: time.Now(),
+		})
 	}
 
 	// Process SendKeys
