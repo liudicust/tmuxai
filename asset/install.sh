@@ -185,6 +185,7 @@ main() {
   local archive_name="${ARCHIVE_PREFIX}_${os}_${arch}.tar.gz"
   local checksums_url="${base_url}/release/${version}/checksums.sha256"
   local archive_url="${base_url}/release/${version}/${archive_name}"
+  local config_url="${base_url}/release/${version}/config.yaml"
 
   TMP_DIR="$(mktemp -d -t cnpai_install_XXXXXX)"
   trap cleanup EXIT
@@ -227,6 +228,9 @@ main() {
   actual_sha="$(sha256_file "$TMP_DIR/${archive_name}")"
   [ "$actual_sha" = "$expected_sha" ] || err "Checksum mismatch: expected=$expected_sha actual=$actual_sha"
 
+  info "Downloading config..."
+  curl "${CURL_OPTS[@]}" "$config_url" -o "$TMP_DIR/config.yaml" || err "Failed to download config.yaml"
+
   info "Extracting..."
   mkdir -p "$TMP_DIR/extract"
   tar -xzf "$TMP_DIR/${archive_name}" -C "$TMP_DIR/extract" || err "Failed to extract archive"
@@ -236,12 +240,6 @@ main() {
     bin_path="$(find "$TMP_DIR/extract" -maxdepth 3 -type f -name "$BIN_NAME_IN_ARCHIVE" -print -quit || true)"
   fi
   [ -f "$bin_path" ] || err "Binary '${BIN_NAME_IN_ARCHIVE}' not found in archive"
-
-  local config_src="$TMP_DIR/extract/config.yaml"
-  if [ ! -f "$config_src" ]; then
-    config_src="$(find "$TMP_DIR/extract" -maxdepth 3 -type f -name "config.yaml" -print -quit || true)"
-  fi
-  [ -f "$config_src" ] || err "config.yaml not found in archive"
 
   mkdir -p "$bin_dir" || err "Failed to create bin dir: $bin_dir"
 
@@ -262,7 +260,7 @@ main() {
   mkdir -p "$TARGET_CONFIG_DIR" || err "Failed to create config dir: $TARGET_CONFIG_DIR"
 
   info "Installing config"
-  cp -f "$config_src" "$TARGET_CONFIG_FILE" || err "Failed to write config.yaml"
+  cp -f "$TMP_DIR/config.yaml" "$TARGET_CONFIG_FILE" || err "Failed to write config.yaml"
 
   if [ "$skip_tmux_conf" != "true" ]; then
     info "Updating tmux config"

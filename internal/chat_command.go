@@ -24,11 +24,6 @@ var commands = []string{
 	"/clear",
 	"/reset",
 	"/exit",
-	"/info",
-	"/watch",
-	"/prepare",
-	"/config",
-	"/squash",
 	"/mcp",
 }
 

@@ -36,7 +36,6 @@
 > [!NOTE]
 > `tmux` 未安装也可以：默认安装脚本已覆盖并处理 `tmux` 缺失的场景。
 >
-> 如果你不在 tmux 会话里运行 `cnp-ai`，它会尝试创建并 attach 一个新 tmux 会话，然后在新的 pane 中启动自身。
 
 ## 安装
 
@@ -45,12 +44,17 @@ curl -kfsSL http://cnpai-cnp-bdtest.gwmit.cn/install.sh | bash
 ```
 
 - 默认安装到 `/usr/local/bin/cnp-ai`
-- 默认安装脚本已处理 `tmux` 未安装场景
-- 默认安装脚本已配置好模型相关信息，默认模型为：`default/qwen3-235b-a22b-instruct`
+- 默认安装脚本已配置好模型相关信息，默认模型为：`deepseek-v3-2`
 
 ## 快速开始
 
-1) 进入你的项目目录（推荐）
+如果尚未安装 CNP-AI，可先执行：
+
+```bash
+curl -kfsSL http://cnpai-cnp-bdtest.gwmit.cn/install.sh | bash
+```
+
+1) 进入你的环境或者对应机器
 
 ```bash
 cd /path/to/your/project
@@ -62,12 +66,11 @@ cd /path/to/your/project
 cnp-ai
 ```
 
-默认安装脚本已经配置好模型相关信息，默认模型为：`default/qwen3-235b-a22b-instruct`。
+默认安装脚本已经配置好模型相关信息，默认模型为：`deepseek-v3-2`。
 
-3) 在 Chat Pane 输入你的请求，例如：
+3) 在 聊天窗口 输入你的请求，例如：
 
 - `帮我解释这个错误日志并给出修复步骤`
-- `根据当前 pane 的 git diff，给出一个安全的重构计划（先不执行命令）`
 
 ## 日常使用（窗口/进入/退出）
 
@@ -86,48 +89,10 @@ cnp-ai
 
 ## 工作方式与布局
 
-CNP-AI 以“一个 tmux 窗口一个实例”的方式工作，并将当前窗口的 pane 分为三类：
+CNP-AI 以“一个 tmux 窗口一个实例”的方式工作，并将当前窗口的 pane 分为两类：
 
-- Chat Pane：你与 AI 交互的地方（REPL 风格输入）
+- Chat Pane：你与 AI 交互的地方
 - Exec Pane：AI 建议并经确认后实际执行命令的 pane
-- Read-Only Panes：窗口中其余 pane，只用于读取上下文，不会被直接操作
-
-## 模式
-
-### Observe（默认）
-
-默认交互模式：你发送消息 -> CNP-AI 捕获各 pane 可见内容 -> 发送给模型 -> 输出建议；如果建议涉及命令执行，会触发安全确认（取决于配置与白/黑名单）。
-
-### Prepare（更精准的命令跟踪）
-
-在 Exec Pane 里注入可识别的 prompt 标记，用于更准确地判断“命令开始/结束、退出码、输出”等信息，减少对固定等待时间的依赖。
-
-启用方式：
-
-```text
-/prepare
-```
-
-启用后会清空本次会话的聊天历史（用于切换到 prepared 交互策略）。
-
-### Watch（持续观察）
-
-持续以固定间隔捕获 pane 输出，并根据你给定的“观察目标”进行评论/建议。
-
-启用方式：
-
-```text
-/watch 监控我的 shell 操作并建议更高效的替代命令
-```
-
-也支持别名：
-
-```text
-/w 监控日志输出中的 error/warn 并给出排障建议
-```
-
-> [!TIP]
-> Watch 会一直运行，直到模型认为“任务已完成”并返回完成标记，或你直接退出程序（`/exit`）。
 
 ## 聊天命令（/ 指令）
 
@@ -135,31 +100,7 @@ CNP-AI 以“一个 tmux 窗口一个实例”的方式工作，并将当前窗�
 | --- | --- |
 | `/clear` | 清空聊天历史并清空 Chat Pane 显示 |
 | `/reset` | 清空聊天历史并清空 Chat Pane + Exec Pane 显示 |
-| `/exit` | 退出 |
-
-## 命令行用法
-
-- 直接带初始请求：
-
-```bash
-cnp-ai "请阅读当前 tmux pane 输出，帮我定位构建失败原因"
-```
-
-- 从文件读取任务：
-
-```bash
-cnp-ai -f path/to/task.txt
-```
-
-
-### 安全确认与白/黑名单
-
-配置中可通过正则控制“哪些命令可免确认/必须拦截”：
-
-- `whitelist_patterns`：匹配则更容易直接放行（仍可能因其他规则被拦截）
-- `blacklist_patterns`：匹配则强制阻止（例如 `rm`、重定向、`sudo` 等）
-
-建议保守配置：把读操作（`ls`/`cat`/`grep`/`git status` 等）放行，把写操作/危险操作放入黑名单。
+| `/exit` | 退出 
 
 ## 使用场景与应用价值
 
@@ -170,14 +111,5 @@ cnp-ai -f path/to/task.txt
 
 ## 示例
 
-- 让它根据多个 pane 的上下文做排障：
+- 根据pane 的上下文做排障：
 
-```text
-我在左上 pane 跑单测失败了，右下 pane 是日志。请找出根因并给出最小修复 diff。
-```
-
-- 让它在执行前先给计划（更安全）：
-
-```text
-请先给出排查步骤清单，每一步都说明要运行的命令和期望看到的结果；等我确认后再执行。
-```
