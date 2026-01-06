@@ -683,6 +683,7 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 			trimmed := strings.TrimSpace(input)
 			if trimmed == "exit" || trimmed == "quit" {
 				atomic.StoreInt32(&tuiSpinnerEnabled, 0)
+				c.processInput("/exit")
 				return nil
 			}
 

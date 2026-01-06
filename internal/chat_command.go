@@ -4,18 +4,15 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
 )
 
 const helpMessage = `Available commands:
-- /info: Display system information
 - /clear: Clear the chat history
 - /reset: Reset the chat history
-- /prepare: Prepare the pane for TmuxAI automation
-- /watch <prompt>: Start watch mode
-- /squash: Summarize the chat history
 - /mcp: Manage MCP servers for the current session
 - /exit: Exit the application`
 
@@ -52,7 +49,11 @@ func (m *Manager) ProcessSubCommand(command string) {
 	// Process the command using prefix matching
 	switch {
 	case prefixMatch(commandPrefix, "/help"):
-		m.Println(helpMessage, StyleInfo)
+		m.Messages = append(m.Messages, ChatMessage{
+			Content:   helpMessage,
+			FromUser:  false,
+			Timestamp: time.Now(),
+		})
 		return
 
 	case prefixMatch(commandPrefix, "/info"):
@@ -89,7 +90,10 @@ func (m *Manager) ProcessSubCommand(command string) {
 		return
 
 	case prefixMatch(commandPrefix, "/exit"):
-		logger.Info("Exit command received, stopping watch mode (if active) and exiting.")
+		logger.Info("Exit command received, killing current tmux window and exiting.")
+		if err := system.TmuxKillCurrentWindow(); err != nil {
+			logger.Error("Failed to kill current tmux window: %v", err)
+		}
 		os.Exit(0)
 		return
 

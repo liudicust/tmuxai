@@ -149,6 +149,24 @@ func TmuxCurrentWindowTarget() (string, error) {
 	return target, nil
 }
 
+func TmuxKillCurrentWindow() error {
+	target, err := TmuxCurrentWindowTarget()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command("tmux", "kill-window", "-t", target)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		logger.Error("Failed to kill tmux window %s: %v, stderr: %s", target, err, stderr.String())
+		return err
+	}
+
+	logger.Debug("Successfully killed tmux window %s", target)
+	return nil
+}
+
 func TmuxCurrentPaneId() (string, error) {
 	tmuxPane := os.Getenv("TMUX_PANE")
 	if tmuxPane == "" {
