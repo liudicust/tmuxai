@@ -230,7 +230,7 @@ func (mc *McpClient) Close() error {
 
 	for serverName, client := range mc.clients {
 		if err := client.Close(); err != nil {
-			fmt.Printf("Error closing MCP client for server %s: %v\n", serverName, err)
+			logger.Error("Error closing MCP client for server %s: %v", serverName, err)
 		}
 	}
 	mc.clients = make(map[string]*client.Client)

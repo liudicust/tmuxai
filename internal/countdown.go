@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/eiannone/keyboard"
@@ -10,6 +11,21 @@ import (
 )
 
 func (m *Manager) Countdown(seconds int) {
+	if seconds <= 0 {
+		return
+	}
+	if atomic.LoadInt32(&tuiSpinnerEnabled) == 1 {
+		remaining := seconds
+		for remaining > 0 {
+			if m.Status == "" {
+				return
+			}
+			time.Sleep(1 * time.Second)
+			remaining--
+		}
+		return
+	}
+
 	highlightColor := color.New(color.FgYellow, color.Bold).SprintFunc()
 	dimColor := color.New(color.FgBlue).SprintFunc()
 	pauseColor := color.New(color.FgRed, color.Bold).SprintFunc()
@@ -42,6 +58,9 @@ func (m *Manager) Countdown(seconds int) {
 	renderCountdown(remaining, seconds, paused, highlightColor, dimColor, pauseColor)
 
 	for remaining > 0 {
+		if m.Status == "" {
+			return
+		}
 		select {
 		case key := <-keyChan:
 			switch key {

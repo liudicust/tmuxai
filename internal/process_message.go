@@ -9,11 +9,11 @@ import (
 
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
-	"github.com/fatih/color"
 )
 
 var tuiSpinnerEnabled int32
 var tuiSpinnerRow int32
+var spinnerCursorHideCount int32
 
 func writeSpinnerLine(s string) {
 	if atomic.LoadInt32(&tuiSpinnerEnabled) == 1 {
@@ -33,6 +33,10 @@ func writeSpinnerLine(s string) {
 }
 
 func startInlineSpinner(text string) func() {
+	if atomic.AddInt32(&spinnerCursorHideCount, 1) == 1 {
+		fmt.Print("\033[?25l")
+	}
+
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	frames := []string{"-", "\\", "|", "/"}
@@ -55,6 +59,10 @@ func startInlineSpinner(text string) func() {
 		close(stop)
 		<-done
 		writeSpinnerLine("")
+		if atomic.AddInt32(&spinnerCursorHideCount, -1) <= 0 {
+			atomic.StoreInt32(&spinnerCursorHideCount, 0)
+			fmt.Print("\033[?25h")
+		}
 	}
 }
 
@@ -112,7 +120,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 
 		// Log both to console and debug file to capture error context
 		errMsg := "Failed to get response from AI: " + err.Error()
-		fmt.Println(errMsg)
+		m.Println(errMsg, StyleError)
 
 		// Debug the failed request even when there's an error
 		if m.Config.Debug {
@@ -157,6 +165,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 		Content:   response,
 		FromUser:  false,
 		Timestamp: time.Now(),
+		Hidden:    true,
 	}
 
 	// Process MCP tool calls
@@ -172,7 +181,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 			continue
 		}
 
-		color.Yellow("🔧 Calling MCP Tool: %s", toolCall.ToolName)
+		m.Println(fmt.Sprintf("🔧 Calling MCP Tool: %s", toolCall.ToolName), StyleInfo)
 		result, err := m.McpClient.CallTool(toolCall.ServerName, toolCall.ToolName, toolCall.Arguments)
 		if err != nil {
 			// 将错误信息添加到对话历史
@@ -250,6 +259,7 @@ func (m *Manager) ProcessUserMessage(ctx context.Context, message string) bool {
 			Content:   fmt.Sprintf("```sh\n%s\n```", command),
 			FromUser:  false,
 			Timestamp: time.Now(),
+			Hidden:    true,
 		})
 	}
 

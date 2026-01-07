@@ -9,7 +9,6 @@ import (
 	"github.com/alvinunreal/tmuxai/config"
 	"github.com/alvinunreal/tmuxai/logger"
 	"github.com/alvinunreal/tmuxai/system"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 )
 
@@ -76,8 +75,7 @@ type Manager struct {
 // 在 NewManager 函数中修复 MCP 客户端初始化
 func NewManager(cfg *config.Config) (*Manager, error) {
 	if cfg.OpenRouter.APIKey == "" {
-		fmt.Println("OpenRouter API key is required. Set it in the config file or as an environment variable: TMUXAI_OPENROUTER_API_KEY")
-		return nil, fmt.Errorf("OpenRouter API key is required")
+		return nil, fmt.Errorf("OpenRouter API key is required. Set it in the config file or as an environment variable: TMUXAI_OPENROUTER_API_KEY")
 	}
 
 	paneId, err := system.TmuxCurrentPaneId()
@@ -147,81 +145,18 @@ func (m *Manager) Start(initMessage string) error {
 }
 
 func (m *Manager) Println(msg string, styles ...PrintStyle) {
-	fmt.Print("\r\033[K")
-	if msg == "" {
-		return
-	}
-	fmt.Println()
-
 	style := StyleDefault
 	if len(styles) > 0 {
 		style = styles[0]
 	}
 
-	var bullet string
-	var contentStyle lipgloss.Style
-
-	switch style {
-	case StyleCommand:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")). // Pink/Magenta for commands
-			Bold(true).
-			Render("🚀")
-		contentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("212")) // Light Pink
-	case StyleAI:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("86")). // Cyan/Aqua for AI
-			Bold(true).
-			Render("👾")
-		contentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")) // White/Gray
-	case StyleError:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")). // Red
-			Bold(true).
-			Render("✖")
-		contentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196"))
-	case StyleSuccess:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("46")). // Green
-			Bold(true).
-			Render("✓")
-		contentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("46"))
-	case StyleInfo:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("220")). // Yellow
-			Bold(true).
-			Render("ℹ")
-		contentStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("220"))
-	case StyleCode:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")). // Pink/Magenta for commands
-			Bold(true).
-			Render("🚀")
-		contentStyle = lipgloss.NewStyle() // No foreground color to preserve syntax highlighting
-	default:
-		bullet = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("62")).
-			Bold(true).
-			Render("•")
-		contentStyle = lipgloss.NewStyle()
-	}
-
-	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
-	bulletWidth := lipgloss.Width(bullet)
-	emptyBullet := strings.Repeat(" ", bulletWidth)
-
-	for i, line := range lines {
-		prefix := bullet
-		if i > 0 {
-			prefix = emptyBullet
-		}
-		fmt.Println(prefix + " " + contentStyle.Render(line))
-	}
+	m.Messages = append(m.Messages, ChatMessage{
+		Content:   msg,
+		FromUser:  false,
+		Timestamp: time.Now(),
+		HasStyle:  true,
+		Style:     style,
+	})
 }
 
 // PrintCode highlights the given code and prints it with the code style

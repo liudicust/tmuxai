@@ -475,6 +475,9 @@ func buildModelOutput(mgr *Manager) string {
 		if msg.FromUser {
 			continue
 		}
+		if msg.Hidden {
+			continue
+		}
 
 		lang, code, ok := extractSingleCodeFence(msg.Content)
 		if ok {
@@ -494,6 +497,18 @@ func buildModelOutput(mgr *Manager) string {
 		visible := stripModelOutputTags(msg.Content)
 		visible = strings.TrimSpace(visible)
 		if visible == "" {
+			continue
+		}
+
+		if msg.HasStyle {
+			rendered := strings.TrimSpace(formatStyledForTUI(msg.Style, visible, cmdLines))
+			if rendered == "" {
+				continue
+			}
+			if len(parts) > 0 {
+				parts = append(parts, "")
+			}
+			parts = append(parts, rendered)
 			continue
 		}
 
@@ -587,6 +602,146 @@ func formatAIForTUI(msg string) string {
 	return strings.Join(out, "\n")
 }
 
+func formatErrorForTUI(msg string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("196")).
+		Bold(true).
+		Render("✖")
+	contentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("196"))
+
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatSuccessForTUI(msg string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("46")).
+		Bold(true).
+		Render("✓")
+	contentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("46"))
+
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatInfoForTUI(msg string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("220")).
+		Bold(true).
+		Render("ℹ")
+	contentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("220"))
+
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatDefaultForTUI(msg string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("62")).
+		Bold(true).
+		Render("•")
+	contentStyle := lipgloss.NewStyle()
+
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatCodeForTUI(msg string) string {
+	bullet := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("205")).
+		Bold(true).
+		Render("🚀")
+	contentStyle := lipgloss.NewStyle()
+
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	bulletWidth := lipgloss.Width(bullet)
+	emptyBullet := strings.Repeat(" ", bulletWidth)
+
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		prefix := bullet
+		if i > 0 {
+			prefix = emptyBullet
+		}
+		out = append(out, prefix+" "+contentStyle.Render(line))
+	}
+	return strings.Join(out, "\n")
+}
+
+func formatStyledForTUI(style PrintStyle, visible string, cmdLines map[string]struct{}) string {
+	switch style {
+	case StyleCommand:
+		return formatCommandForTUI(visible)
+	case StyleAI:
+		if len(cmdLines) > 0 {
+			visible = removeExactLines(visible, cmdLines)
+			visible = strings.TrimSpace(collapseBlankLines(visible))
+		}
+		visible = strings.TrimSpace(visible)
+		if visible == "" {
+			return ""
+		}
+		return formatAIForTUI(system.Cosmetics(visible))
+	case StyleError:
+		return formatErrorForTUI(visible)
+	case StyleSuccess:
+		return formatSuccessForTUI(visible)
+	case StyleInfo:
+		return formatInfoForTUI(visible)
+	case StyleCode:
+		return formatCodeForTUI(visible)
+	default:
+		return formatDefaultForTUI(visible)
+	}
+}
+
 func stripModelOutputTags(s string) string {
 	tags := []string{
 		"TmuxSendKeys",
@@ -646,7 +801,6 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 
 	// Initial message handling
 	if initMessage != "" {
-		fmt.Printf("%s%s\n", c.manager.GetPrompt(), initMessage)
 		c.processInput(initMessage)
 	} else {
 		// Clear screen to hide the command invocation line
@@ -763,6 +917,8 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 			fmt.Print(disableFocusReport)
 
 			boxH := inputBoxHeight(m)
+			clearInputBoxLines(c.manager, boxH, "submitting")
+
 			topRow := m.height - boxH + 1
 			row := topRow + 1
 			if row < 1 {
@@ -774,7 +930,6 @@ func (c *CLIInterface) StartTUI(initMessage string) error {
 			atomic.StoreInt32(&tuiSpinnerRow, int32(row))
 			atomic.StoreInt32(&tuiSpinnerEnabled, 1)
 
-			fmt.Print("\033[2J\033[1;1H")
 			input := m.textInput.Value()
 
 			// Check for exit/quit

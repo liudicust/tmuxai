@@ -63,17 +63,13 @@ func (m *Manager) ExecWaitCapture(command string) (CommandExecHistory, error) {
 	system.TmuxSendCommandToPane(m.ExecPane.Id, command, true)
 	m.ExecPane.Refresh(m.GetMaxCaptureLines())
 
-	m.Println("")
+	stopSpinner := startInlineSpinner("Executing...")
+	defer stopSpinner()
 
-	animChars := []string{"⋯", "⋱", "⋮", "⋰"}
-	animIndex := 0
 	for !strings.HasSuffix(m.ExecPane.LastLine, "]»") && m.Status != "" {
-		fmt.Printf("\r%s%s ", m.GetPrompt(), animChars[animIndex])
-		animIndex = (animIndex + 1) % len(animChars)
 		time.Sleep(500 * time.Millisecond)
 		m.ExecPane.Refresh(m.GetMaxCaptureLines())
 	}
-	fmt.Print("\r\033[K")
 
 	m.parseExecPaneCommandHistory()
 	cmd := m.ExecHistory[len(m.ExecHistory)-1]
@@ -116,8 +112,7 @@ func (m *Manager) parseExecPaneCommandHistory() {
 				// Parse the status code found on *this* line - it belongs to the *previous* command
 				statusCode, err := strconv.Atoi(statusCodeStr)
 				if err != nil {
-					// This shouldn't happen with \d+ regex but check anyway
-					fmt.Printf("Warning: Could not parse status code '%s' for previous command on line: %s\n", statusCodeStr, line)
+					m.Println(fmt.Sprintf("Warning: Could not parse status code '%s' for previous command on line: %s", statusCodeStr, line), StyleError)
 					currentCommand.Code = -1 // Indicate parsing error
 				} else {
 					currentCommand.Code = statusCode // Assign correct status

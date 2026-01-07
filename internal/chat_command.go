@@ -67,7 +67,7 @@ func (m *Manager) ProcessSubCommand(command string) {
 		if m.ExecPane.IsPrepared {
 			m.Println("Exec pane prepared successfully", StyleSuccess)
 		}
-		fmt.Println(m.ExecPane.String())
+		m.Println(m.ExecPane.String(), StyleCode)
 		m.parseExecPaneCommandHistory()
 
 		logger.Debug("Parsed exec history:")
@@ -139,20 +139,22 @@ func prefixMatch(command, target string) bool {
 // formats system information and tmux details into a readable string
 func (m *Manager) formatInfo() {
 	formatter := system.NewInfoFormatter()
-	const labelWidth = 18 // Width of the label column
+	const labelWidth = 18
+
+	var b strings.Builder
 	formatLine := func(key string, value any) {
-		fmt.Print(formatter.LabelColor.Sprintf("%-*s", labelWidth, key))
-		fmt.Print("  ")
-		fmt.Println(value)
+		b.WriteString(formatter.LabelColor.Sprintf("%-*s", labelWidth, key))
+		b.WriteString("  ")
+		b.WriteString(fmt.Sprint(value))
+		b.WriteString("\n")
 	}
-	// Display general information
-	fmt.Println(formatter.FormatSection("\nGeneral"))
+
+	b.WriteString(formatter.FormatSection("\nGeneral"))
 	formatLine("Version", Version)
 	formatLine("Max Capture Lines", m.Config.MaxCaptureLines)
 	formatLine("Wait Interval", m.Config.WaitInterval)
 
-	// Display context information section
-	fmt.Println(formatter.FormatSection("\nContext"))
+	b.WriteString(formatter.FormatSection("\nContext"))
 	formatLine("Messages", len(m.Messages))
 	var totalTokens int
 	for _, msg := range m.Messages {
@@ -163,21 +165,32 @@ func (m *Manager) formatInfo() {
 	if m.GetMaxContextSize() > 0 {
 		usagePercent = float64(totalTokens) / float64(m.GetMaxContextSize()) * 100
 	}
-	fmt.Print(formatter.LabelColor.Sprintf("%-*s", labelWidth, "Context Size~"))
-	fmt.Print("  ") // Two spaces for separation
-	fmt.Printf("%s\n", fmt.Sprintf("%d tokens", totalTokens))
-	fmt.Printf("%-*s  %s\n", labelWidth, "", formatter.FormatProgressBar(usagePercent, 10))
+	b.WriteString(formatter.LabelColor.Sprintf("%-*s", labelWidth, "Context Size~"))
+	b.WriteString("  ")
+	b.WriteString(fmt.Sprintf("%d tokens", totalTokens))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("%-*s  %s\n", labelWidth, "", formatter.FormatProgressBar(usagePercent, 10)))
 	formatLine("Max Size", fmt.Sprintf("%d tokens", m.GetMaxContextSize()))
 
-	// Display tmux panes section
-	fmt.Println()
-	fmt.Println(formatter.FormatSection("Tmux Window Panes"))
+	b.WriteString("\n")
+	b.WriteString(formatter.FormatSection("Tmux Window Panes"))
 
 	panes, _ := m.GetTmuxPanes()
-	for _, pane := range panes {
+	for i, pane := range panes {
 		pane.Refresh(m.GetMaxCaptureLines())
-		fmt.Println(pane.FormatInfo(formatter))
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(pane.FormatInfo(formatter))
 	}
+
+	m.Messages = append(m.Messages, ChatMessage{
+		Content:   strings.TrimRight(b.String(), "\n"),
+		FromUser:  false,
+		Timestamp: time.Now(),
+		HasStyle:  true,
+		Style:     StyleDefault,
+	})
 }
 
 // handleConfigCommand processes /config subcommands

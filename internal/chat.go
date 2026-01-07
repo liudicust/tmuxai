@@ -15,6 +15,9 @@ type ChatMessage struct {
 	Content   string
 	FromUser  bool
 	Timestamp time.Time
+	Hidden    bool
+	HasStyle  bool
+	Style     PrintStyle
 }
 
 type CLIInterface struct {

@@ -2,12 +2,45 @@ package internal
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
 	"github.com/chzyer/readline"
 	"github.com/fatih/color"
+	"golang.org/x/term"
 )
+
+func redrawTUIForBlockingPrompt(mgr *Manager) {
+	if mgr == nil {
+		return
+	}
+
+	w, h := 0, 0
+	if mgr.PaneId != "" {
+		pw, ph := getTmuxPaneSize(mgr.PaneId)
+		w, h = pw, ph
+	}
+	if w <= 0 {
+		wOut, hOut, err := term.GetSize(int(os.Stdout.Fd()))
+		if err == nil {
+			w, h = wOut, hOut
+		}
+	}
+	if w <= 0 {
+		w = 80
+		h = 24
+	}
+
+	modelOutput := buildModelOutput(mgr)
+	top := renderModelOutput(modelOutput, w, h-1)
+
+	fmt.Print("\033[2J\033[1;1H")
+	if strings.TrimSpace(top) != "" {
+		fmt.Print(top)
+		fmt.Print("\n")
+	}
+}
 
 func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (bool, string) {
 	isSafe, _ := m.whitelistCheck(command)
@@ -24,6 +57,8 @@ func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (boo
 		promptText = fmt.Sprintf("%s [Y]es/No: ", prompt)
 	}
 
+	redrawTUIForBlockingPrompt(m)
+
 	// Use readline for initial confirmation to properly handle Ctrl+C
 	rlConfig := &readline.Config{
 		Prompt:          promptColor.Sprint(promptText),
@@ -33,7 +68,7 @@ func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (boo
 
 	rl, err := readline.NewEx(rlConfig)
 	if err != nil {
-		fmt.Printf("Error initializing readline: %v\n", err)
+		m.Println(fmt.Sprintf("Error initializing readline: %v", err), StyleError)
 		return false, ""
 	}
 	defer rl.Close()
@@ -45,7 +80,7 @@ func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (boo
 			return false, ""
 		}
 
-		fmt.Printf("Error reading confirmation: %v\n", err)
+		m.Println(fmt.Sprintf("Error reading confirmation: %v", err), StyleError)
 		return false, ""
 	}
 
@@ -68,7 +103,7 @@ func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (boo
 
 		editRl, editErr := readline.NewEx(editConfig)
 		if editErr != nil {
-			fmt.Printf("Error initializing readline for edit: %v\n", editErr)
+			m.Println(fmt.Sprintf("Error initializing readline for edit: %v", editErr), StyleError)
 			return false, ""
 		}
 		defer editRl.Close()
@@ -81,7 +116,7 @@ func (m *Manager) confirmedToExec(command string, prompt string, edit bool) (boo
 				return false, ""
 			}
 
-			fmt.Printf("Error reading edited command: %v\n", editErr)
+			m.Println(fmt.Sprintf("Error reading edited command: %v", editErr), StyleError)
 			return false, ""
 		}
 

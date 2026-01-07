@@ -54,6 +54,7 @@ var rootCmd = &cobra.Command{
 		mgr, err := internal.NewManager(cfg)
 		if err != nil {
 			logger.Error("manager.NewManager failed: %v", err)
+			fmt.Fprintf(os.Stderr, "Error creating manager: %v\n", err)
 			os.Exit(1)
 		}
 		if initMessage != "" {
