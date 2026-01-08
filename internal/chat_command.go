@@ -57,23 +57,23 @@ func (m *Manager) ProcessSubCommand(command string) {
 		return
 
 	case prefixMatch(commandPrefix, "/info"):
-		m.formatInfo()
+		//m.formatInfo()
 		return
 
 	case prefixMatch(commandPrefix, "/prepare"):
-		m.InitExecPane()
-		m.PrepareExecPane()
-		m.Messages = []ChatMessage{}
-		if m.ExecPane.IsPrepared {
-			m.Println("Exec pane prepared successfully", StyleSuccess)
-		}
-		m.Println(m.ExecPane.String(), StyleCode)
-		m.parseExecPaneCommandHistory()
+		// m.InitExecPane()
+		// m.PrepareExecPane()
+		// m.Messages = []ChatMessage{}
+		// if m.ExecPane.IsPrepared {
+		// 	m.Println("Exec pane prepared successfully", StyleSuccess)
+		// }
+		// m.Println(m.ExecPane.String(), StyleCode)
+		// m.parseExecPaneCommandHistory()
 
-		logger.Debug("Parsed exec history:")
-		for _, history := range m.ExecHistory {
-			logger.Debug(fmt.Sprintf("Command: %s\nOutput: %s\nCode: %d\n", history.Command, history.Output, history.Code))
-		}
+		// logger.Debug("Parsed exec history:")
+		// for _, history := range m.ExecHistory {
+		// 	logger.Debug(fmt.Sprintf("Command: %s\nOutput: %s\nCode: %d\n", history.Command, history.Output, history.Code))
+		// }
 
 		return
 
@@ -102,6 +102,7 @@ func (m *Manager) ProcessSubCommand(command string) {
 		return
 
 	case prefixMatch(commandPrefix, "/watch") || commandPrefix == "/w":
+		return
 		parts := strings.Fields(command)
 		if len(parts) > 1 {
 			watchDesc := strings.Join(parts[1:], " ")
@@ -119,7 +120,7 @@ Watch for: ` + watchDesc
 		return
 
 	case prefixMatch(commandPrefix, "/config"):
-		handleConfigCommand(m, parts[1:])
+		//handleConfigCommand(m, parts[1:])
 		return
 
 	case prefixMatch(commandPrefix, "/mcp"):

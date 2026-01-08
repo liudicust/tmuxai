@@ -1,6 +1,10 @@
 package config
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,6 +138,9 @@ func Load() (*Config, error) {
 	}
 
 	ResolveEnvKeyInConfig(config)
+	if err := DecryptConfigSecrets(config); err != nil {
+		return nil, err
+	}
 
 	return config, nil
 }
@@ -261,4 +268,73 @@ func resolveEnvKeyReferenceInValue(val reflect.Value) {
 			resolveEnvKeyReferenceInValue(val.Elem())
 		}
 	}
+}
+
+const encryptedValuePrefix = "enc:"
+
+var defaultConfigSecret = []byte("CNPAI")
+
+func DecryptConfigSecrets(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	apiKey, err := decryptStringIfEncrypted(cfg.OpenRouter.APIKey)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt openrouter.api_key: %w", err)
+	}
+	cfg.OpenRouter.APIKey = apiKey
+
+	for i := range cfg.Mcp.Servers {
+		k, err := decryptStringIfEncrypted(cfg.Mcp.Servers[i].APIKey)
+		if err != nil {
+			name := cfg.Mcp.Servers[i].Name
+			if name == "" {
+				name = fmt.Sprintf("index=%d", i)
+			}
+			return fmt.Errorf("failed to decrypt mcp.servers[%s].api_key: %w", name, err)
+		}
+		cfg.Mcp.Servers[i].APIKey = k
+	}
+
+	return nil
+}
+
+func decryptStringIfEncrypted(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value, nil
+	}
+	if !strings.HasPrefix(value, encryptedValuePrefix) {
+		return value, nil
+	}
+
+	payload := strings.TrimPrefix(value, encryptedValuePrefix)
+	raw, err := base64.RawStdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", fmt.Errorf("invalid base64 payload: %w", err)
+	}
+
+	key := sha256.Sum256(defaultConfigSecret)
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(raw) < nonceSize {
+		return "", fmt.Errorf("payload too short")
+	}
+	nonce := raw[:nonceSize]
+	ciphertext := raw[nonceSize:]
+
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
 }

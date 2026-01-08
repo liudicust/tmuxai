@@ -11,7 +11,7 @@ set -o pipefail 2>/dev/null || true
 
 PRODUCT_NAME="CNP-AI"
 ARCHIVE_PREFIX="cnpai"
-DEFAULT_VERSION="v0.0.1"
+DEFAULT_VERSION="latest"
 DEFAULT_BASE_URL="http://cnpai-cnp-bdtest.gwmit.cn"
 
 BIN_NAME_IN_ARCHIVE="cnp-ai"
@@ -182,6 +182,15 @@ main() {
     *) err "Unsupported arch: $arch_raw" ;;
   esac
 
+  local resolved_from_latest="false"
+  if [ "$version" = "latest" ]; then
+    local latest_url="${base_url}/release/latest.txt"
+    info "Resolving latest version from: ${latest_url}"
+    version="$(curl "${CURL_OPTS[@]}" "$latest_url" | tr -d '\r' | head -n 1 | awk '{print $1}')"
+    [ -n "$version" ] || err "latest.txt is empty or unreadable: ${latest_url}"
+    resolved_from_latest="true"
+  fi
+
   local archive_name="${ARCHIVE_PREFIX}_${os}_${arch}.tar.gz"
   local checksums_url="${base_url}/release/${version}/checksums.sha256"
   local archive_url="${base_url}/release/${version}/${archive_name}"
@@ -191,7 +200,11 @@ main() {
   trap cleanup EXIT
 
   info "${PRODUCT_NAME} installer"
-  info "Version: ${version}"
+  if [ "$resolved_from_latest" = "true" ]; then
+    info "Version: ${version} (latest)"
+  else
+    info "Version: ${version}"
+  fi
   info "Platform: ${os}_${arch}"
   info "Archive: ${archive_url}"
   info "Checksums: ${checksums_url}"
